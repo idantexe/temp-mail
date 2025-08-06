@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alat Email Modern v2</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .loader { border: 3px solid rgba(255, 255, 255, 0.3); border-top: 3px solid #fff; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        #toast { transition: opacity 0.3s, transform 0.3s; }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #e2e8f0; }
+        ::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+        /* Message Panel Transition */
+        #message-panel { transition: transform 0.3s ease-in-out; }
+        
+        .tab-btn.active { border-color: #6366f1; color: #eef2ff; }
+        .message-item.active { background-color: #eef2ff; }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 antialiased">
+
+    <div class="flex h-screen w-screen overflow-hidden">
+        <!-- Sidebar -->
+        <aside class="w-full max-w-sm bg-slate-800 text-slate-300 flex flex-col p-6 space-y-6 overflow-y-auto">
+            <header class="flex-shrink-0">
+                <h1 class="text-2xl font-bold text-white">Inbox Instan</h1>
+                <p class="text-sm text-slate-400">Email Sementara Generasi Berikutnya</p>
+            </header>
+
+            <!-- Control Panel -->
+            <div class="bg-slate-900/50 rounded-xl flex-shrink-0">
+                <div class="flex border-b border-slate-700">
+                    <button id="tab-create" class="tab-btn flex-1 p-3 font-semibold border-b-2 border-transparent">Buat Baru</button>
+                    <button id="tab-login" class="tab-btn flex-1 p-3 font-semibold border-b-2 border-transparent">Masuk</button>
+                </div>
+
+                <!-- Create Panel -->
+                <div id="create-panel" class="p-4 space-y-4">
+                    <div>
+                        <label for="custom-name" class="block text-xs font-medium text-slate-400 mb-1">Nama Pengguna (opsional)</label>
+                        <input type="text" id="custom-name" class="w-full bg-slate-700 border border-slate-600 rounded-md p-2 text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" placeholder="proyek.baru">
+                    </div>
+                    <div>
+                        <label for="domain-select" class="block text-xs font-medium text-slate-400 mb-1">Domain</label>
+                        <select id="domain-select" class="w-full bg-slate-700 border border-slate-600 rounded-md p-2 text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" disabled>
+                            <option>Memuat...</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="create-password" class="block text-xs font-medium text-slate-400 mb-1">Kata Sandi (opsional)</label>
+                        <input type="password" id="create-password" class="w-full bg-slate-700 border border-slate-600 rounded-md p-2 text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" placeholder="Kosongkan untuk acak">
+                    </div>
+                    <button id="generate-button" class="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-bold py-2.5 px-4 rounded-md transition duration-300 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span id="generate-btn-text">Buat Email</span>
+                        <div id="generate-loader" class="loader hidden ml-2"></div>
+                    </button>
+                </div>
+
+                <!-- Login Panel -->
+                <div id="login-panel" class="p-4 space-y-4 hidden">
+                    <div>
+                        <label for="login-email" class="block text-xs font-medium text-slate-400 mb-1">Alamat Email</label>
+                        <input type="email" id="login-email" class="w-full bg-slate-700 border border-slate-600 rounded-md p-2 text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" placeholder="nama@domain.com">
+                    </div>
+                    <div>
+                        <label for="login-password" class="block text-xs font-medium text-slate-400 mb-1">Kata Sandi</label>
+                        <input type="password" id="login-password" class="w-full bg-slate-700 border border-slate-600 rounded-md p-2 text-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" placeholder="••••••••">
+                    </div>
+                    <button id="login-button" class="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-bold py-2.5 px-4 rounded-md transition duration-300 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed">
+                        <span id="login-btn-text">Masuk</span>
+                        <div id="login-loader" class="loader hidden ml-2"></div>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Email Card -->
+            <div id="email-card" class="bg-slate-900/50 rounded-xl p-4 space-y-3 hidden flex-shrink-0">
+                <div>
+                    <p class="text-xs text-slate-400">Alamat Email Aktif:</p>
+                    <p id="email-address" class="text-md font-semibold text-white break-all"></p>
+                </div>
+                <div id="password-display-container" class="hidden">
+                    <p class="text-xs text-slate-400">Kata Sandi:</p>
+                    <div class="flex items-center space-x-2">
+                        <input type="password" id="password-display" readonly class="flex-grow bg-transparent text-white text-sm font-mono">
+                        <button id="toggle-password-visibility" class="p-1 text-slate-400 hover:text-white">
+                            <svg id="eye-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                            <svg id="eye-slash-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 hidden"><path stroke-linecap="round" stroke-linejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.243 4.243L6.228 6.228" /></svg>
+                        </button>
+                    </div>
+                </div>
+                <button id="copy-button" class="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded-md transition duration-300 flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-5 h-5 mr-2"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m12 6.625v-1.875a3.375 3.375 0 00-3.375-3.375h-1.5a1.125 1.125 0 01-1.125-1.125v-1.5a3.375 3.375 0 00-3.375-3.375H9.75" /></svg>
+                    <span id="copy-btn-text">Salin Alamat</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-1 bg-white flex flex-col">
+            <div class="p-4 border-b border-slate-200 flex justify-between items-center flex-shrink-0">
+                <h2 class="text-xl font-bold text-slate-800">Kotak Masuk</h2>
+                <button id="refresh-button" class="p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-indigo-600 transition disabled:text-slate-300 disabled:hover:bg-transparent" disabled title="Segarkan Kotak Masuk">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0011.664 0l3.18-3.185m-7.528 0V4.5A2.25 2.25 0 0110.5 2.25h3A2.25 2.25 0 0115.75 4.5v4.848m-3.182 0l-3.182 3.182a8.25 8.25 0 0011.664 0l3.18-3.185" /></svg>
+                </button>
+            </div>
+            <div id="messages-container" class="overflow-y-auto flex-1">
+                 <div id="inbox-placeholder" class="flex flex-col items-center justify-center h-full text-center text-slate-400 p-8">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-20 h-20 mb-4 text-slate-300"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>
+                    <p class="font-semibold text-lg text-slate-600">Kotak masuk Anda menanti</p>
+                    <p class="text-sm">Buat atau masuk ke akun di panel kiri untuk melihat pesan.</p>
+                </div>
+                <div id="loading-messages" class="hidden items-center justify-center h-full">
+                    <div class="loader !border-t-indigo-600 !border-slate-200 w-10 h-10"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Message Panel (Drawer) -->
+    <div id="message-panel-backdrop" class="fixed inset-0 bg-black bg-opacity-50 z-40 hidden"></div>
+    <div id="message-panel" class="fixed top-0 right-0 h-full w-full max-w-2xl bg-white shadow-2xl z-50 transform translate-x-full flex flex-col">
+        <div class="p-4 border-b flex justify-between items-center flex-shrink-0">
+            <div class="min-w-0">
+                 <h3 id="modal-subject" class="text-lg font-bold text-slate-800 truncate"></h3>
+                 <p id="modal-from" class="text-sm text-slate-600 truncate"></p>
+            </div>
+            <button id="close-modal" class="p-2 rounded-full hover:bg-slate-200 text-slate-500">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+        </div>
+        <div id="modal-body" class="p-6 overflow-y-auto flex-1"></div>
+    </div>
+    
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-5 right-5 bg-slate-900 text-white py-2 px-5 rounded-lg shadow-lg opacity-0 transform translate-y-5 z-50"><p id="toast-message"></p></div>
+
+    <script>
+        // --- DOM Elements ---
+        const tabCreate = document.getElementById('tab-create');
+        const tabLogin = document.getElementById('tab-login');
+        const createPanel = document.getElementById('create-panel');
+        const loginPanel = document.getElementById('login-panel');
+        const customNameInput = document.getElementById('custom-name');
+        const domainSelect = document.getElementById('domain-select');
+        const createPasswordInput = document.getElementById('create-password');
+        const generateButton = document.getElementById('generate-button');
+        const generateBtnText = document.getElementById('generate-btn-text');
+        const generateLoader = document.getElementById('generate-loader');
+        const loginEmailInput = document.getElementById('login-email');
+        const loginPasswordInput = document.getElementById('login-password');
+        const loginButton = document.getElementById('login-button');
+        const loginBtnText = document.getElementById('login-btn-text');
+        const loginLoader = document.getElementById('login-loader');
+        const emailCard = document.getElementById('email-card');
+        const emailAddressEl = document.getElementById('email-address');
+        const passwordDisplayContainer = document.getElementById('password-display-container');
+        const passwordDisplay = document.getElementById('password-display');
+        const togglePasswordVisibilityBtn = document.getElementById('toggle-password-visibility');
+        const eyeIcon = document.getElementById('eye-icon');
+        const eyeSlashIcon = document.getElementById('eye-slash-icon');
+        const copyButton = document.getElementById('copy-button');
+        const copyBtnText = document.getElementById('copy-btn-text');
+        const refreshButton = document.getElementById('refresh-button');
+        const messagesContainer = document.getElementById('messages-container');
+        const inboxPlaceholder = document.getElementById('inbox-placeholder');
+        const loadingMessages = document.getElementById('loading-messages');
+        const messagePanel = document.getElementById('message-panel');
+        const messagePanelBackdrop = document.getElementById('message-panel-backdrop');
+        const closeModal = document.getElementById('close-modal');
+        const modalSubject = document.getElementById('modal-subject');
+        const modalFrom = document.getElementById('modal-from');
+        const modalBody = document.getElementById('modal-body');
+        const toast = document.getElementById('toast');
+        const toastMessage = document.getElementById('toast-message');
+
+        // --- State ---
+        let currentAccount = null;
+        let authToken = null;
+        let messageCheckInterval = null;
+        const API_BASE = 'https://api.mail.tm';
+
+        // --- Utility & UI Functions ---
+        function showToast(message) {
+            toastMessage.textContent = message;
+            toast.classList.remove('opacity-0', 'translate-y-5');
+            setTimeout(() => { toast.classList.add('opacity-0', 'translate-y-5'); }, 3000);
+        }
+
+        function generateRandomString() { return Math.random().toString(36).substring(2, 10); }
+
+        function switchTab(tab) {
+            if (tab === 'create') {
+                tabCreate.classList.add('active');
+                tabLogin.classList.remove('active');
+                createPanel.classList.remove('hidden');
+                loginPanel.classList.add('hidden');
+            } else {
+                tabLogin.classList.add('active');
+                tabCreate.classList.remove('active');
+                loginPanel.classList.remove('hidden');
+                createPanel.classList.add('hidden');
+            }
+        }
+        
+        function setButtonLoadingState(button, loader, textEl, isLoading) {
+            button.disabled = isLoading;
+            loader.classList.toggle('hidden', !isLoading);
+            textEl.classList.toggle('hidden', isLoading);
+        }
+
+        // --- API Functions ---
+        async function apiFetch(endpoint, options = {}) {
+            try {
+                const response = await fetch(API_BASE + endpoint, options);
+                if (response.status === 204) return null;
+                const data = await response.json();
+                if (!response.ok) {
+                    let errorMessage = data.detail || data.message || data['hydra:description'] || `Error ${response.status}`;
+                    throw new Error(errorMessage);
+                }
+                return data;
+            } catch (error) {
+                console.error(`Error fetching ${endpoint}:`, error);
+                showToast(`Kesalahan: ${error.message}`);
+                return null;
+            }
+        }
+
+        async function fetchAndPopulateDomains() {
+            const data = await apiFetch('/domains');
+            if (data && data['hydra:member']?.length > 0) {
+                domainSelect.innerHTML = '';
+                data['hydra:member'].forEach(d => {
+                    if (d.isActive) {
+                        const option = new Option(d.domain, d.domain);
+                        domainSelect.appendChild(option);
+                    }
+                });
+                domainSelect.disabled = false;
+            } else {
+                domainSelect.innerHTML = '<option>Gagal memuat</option>';
+            }
+        }
+
+        async function createAccount(address, password) {
+            return await apiFetch('/accounts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ address, password })
+            });
+        }
+
+        async function getToken(address, password) {
+            const tokenData = await apiFetch('/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ address, password })
+            });
+            return tokenData ? tokenData.token : null;
+        }
+
+        async function getMessages() {
+            if (!authToken) return;
+            loadingMessages.style.display = 'flex';
+            inboxPlaceholder.style.display = 'none';
+            if (document.querySelector('.message-item') === null) {
+                messagesContainer.innerHTML = '';
+            }
+
+            const data = await apiFetch('/messages', {
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            
+            loadingMessages.style.display = 'none';
+            displayMessages(data ? data['hydra:member'] : []);
+        }
+        
+        function displayMessages(messages) {
+             if (messages.length === 0) {
+                messagesContainer.innerHTML = ''; // Clear old messages if any
+                inboxPlaceholder.style.display = 'flex';
+                return;
+            }
+            inboxPlaceholder.style.display = 'none';
+            messagesContainer.innerHTML = '';
+            messages.forEach(msg => {
+                const el = document.createElement('div');
+                el.className = 'message-item border-b border-slate-200 p-4 cursor-pointer hover:bg-slate-50 transition flex items-start space-x-3';
+                el.dataset.messageId = msg.id;
+                
+                const readIndicator = msg.seen ? '' : '<div class="w-2.5 h-2.5 bg-indigo-500 rounded-full mt-1.5 flex-shrink-0"></div>';
+
+                el.innerHTML = `
+                    ${readIndicator}
+                    <div class="flex-1 min-w-0">
+                        <div class="flex justify-between items-start">
+                            <p class="font-semibold truncate text-slate-700">${msg.from.name || msg.from.address}</p>
+                            <p class="text-xs text-slate-500 ml-4 flex-shrink-0">${new Date(msg.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+                        </div>
+                        <p class="font-bold text-slate-800 truncate">${msg.subject}</p>
+                        <p class="text-sm text-slate-600 mt-1 truncate">${msg.intro}</p>
+                    </div>
+                `;
+                el.addEventListener('click', () => showMessageContent(msg, el));
+                messagesContainer.appendChild(el);
+            });
+        }
+
+        async function showMessageContent(message, element) {
+            // Mark as active in UI
+            document.querySelectorAll('.message-item.active').forEach(el => el.classList.remove('active'));
+            element.classList.add('active');
+            
+            // Hide read indicator
+            const indicator = element.querySelector('.w-2\\.5');
+            if(indicator) indicator.style.display = 'none';
+
+            // Show panel
+            messagePanelBackdrop.classList.remove('hidden');
+            messagePanel.classList.remove('translate-x-full');
+
+            // Fetch full message
+            modalSubject.textContent = 'Memuat...';
+            modalFrom.textContent = '';
+            modalBody.innerHTML = '<div class="loader !border-t-indigo-600 !border-slate-200 w-8 h-8 mx-auto mt-10"></div>';
+            
+            const fullMessage = await apiFetch(`/messages/${message.id}`, { headers: { 'Authorization': `Bearer ${authToken}` }});
+            if(!fullMessage) {
+                modalBody.textContent = 'Gagal memuat isi pesan.';
+                return;
+            }
+            // Mark as seen on server
+            await apiFetch(`/messages/${message.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/merge-patch+json', 'Authorization': `Bearer ${authToken}` },
+                body: JSON.stringify({ seen: true })
+            });
+
+            modalSubject.textContent = fullMessage.subject;
+            modalFrom.textContent = `Dari: ${fullMessage.from.name || ''} <${fullMessage.from.address}>`;
+            modalBody.innerHTML = '';
+            
+            if (fullMessage.html?.length > 0) {
+                const iframe = document.createElement('iframe');
+                iframe.style.cssText = 'width:100%; height:100%; border:none;';
+                iframe.setAttribute('sandbox', 'allow-same-origin');
+                modalBody.appendChild(iframe);
+                iframe.contentWindow.document.open();
+                iframe.contentWindow.document.write(fullMessage.html[0]);
+                iframe.contentWindow.document.close();
+            } else {
+                const pre = document.createElement('pre');
+                pre.className = 'whitespace-pre-wrap break-words text-sm';
+                pre.textContent = fullMessage.text || 'Pesan ini tidak memiliki konten.';
+                modalBody.appendChild(pre);
+            }
+        }
+
+        function hideMessagePanel() {
+            messagePanel.classList.add('translate-x-full');
+            messagePanelBackdrop.classList.add('hidden');
+        }
+
+        // --- Session & Event Handlers ---
+        function startUserSession(account, token) {
+            if (messageCheckInterval) clearInterval(messageCheckInterval);
+            
+            currentAccount = account;
+            authToken = token;
+
+            emailAddressEl.textContent = currentAccount.address;
+            if (currentAccount.password) {
+                passwordDisplay.value = currentAccount.password;
+                passwordDisplayContainer.classList.remove('hidden');
+            } else {
+                passwordDisplayContainer.classList.add('hidden');
+            }
+            emailCard.classList.remove('hidden');
+            refreshButton.disabled = false;
+            
+            getMessages();
+            messageCheckInterval = setInterval(getMessages, 15000);
+        }
+
+        async function handleGenerateNew() {
+            setButtonLoadingState(generateButton, generateLoader, generateBtnText, true);
+
+            const localPart = customNameInput.value.trim() || generateRandomString();
+            const domain = domainSelect.value;
+            const address = `${localPart}@${domain}`;
+            const password = createPasswordInput.value.trim() || (generateRandomString() + generateRandomString());
+
+            const account = await createAccount(address, password);
+            if (account) {
+                const token = await getToken(address, password);
+                if (token) {
+                    startUserSession({ address, password }, token);
+                    showToast(`Email ${address} berhasil dibuat!`);
+                }
+            }
+            setButtonLoadingState(generateButton, generateLoader, generateBtnText, false);
+        }
+        
+        async function handleLogin() {
+            setButtonLoadingState(loginButton, loginLoader, loginBtnText, true);
+
+            const address = loginEmailInput.value.trim();
+            const password = loginPasswordInput.value.trim();
+
+            if (!address || !password) {
+                showToast("Email dan kata sandi tidak boleh kosong.");
+            } else {
+                const token = await getToken(address, password);
+                if (token) {
+                    startUserSession({ address, password }, token);
+                    showToast(`Berhasil masuk sebagai ${address}!`);
+                }
+            }
+            setButtonLoadingState(loginButton, loginLoader, loginBtnText, false);
+        }
+
+        function handleCopy() {
+            if (!currentAccount) return;
+            navigator.clipboard.writeText(currentAccount.address).then(() => {
+                copyBtnText.textContent = 'Tersalin!';
+                showToast('Alamat email disalin!');
+                setTimeout(() => { copyBtnText.textContent = 'Salin Alamat'; }, 2000);
+            }, () => showToast('Gagal menyalin.'));
+        }
+
+        // --- Initial Setup ---
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchAndPopulateDomains();
+            switchTab('create'); // Set initial tab
+
+            tabCreate.addEventListener('click', () => switchTab('create'));
+            tabLogin.addEventListener('click', () => switchTab('login'));
+            generateButton.addEventListener('click', handleGenerateNew);
+            loginButton.addEventListener('click', handleLogin);
+            copyButton.addEventListener('click', handleCopy);
+            refreshButton.addEventListener('click', getMessages);
+            
+            togglePasswordVisibilityBtn.addEventListener('click', () => {
+                const isPassword = passwordDisplay.type === 'password';
+                passwordDisplay.type = isPassword ? 'text' : 'password';
+                eyeIcon.classList.toggle('hidden', isPassword);
+                eyeSlashIcon.classList.toggle('hidden', !isPassword);
+            });
+            
+            closeModal.addEventListener('click', hideMessagePanel);
+            messagePanelBackdrop.addEventListener('click', hideMessagePanel);
+            window.addEventListener('keydown', (e) => { if (e.key === 'Escape') hideMessagePanel(); });
+        });
+    </script>
+</body>
+</html>
