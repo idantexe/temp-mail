@@ -26,6 +26,9 @@ const BUDGET_LABELS = {
 
 const CARD_COLORS = ['bg-emerald-100', 'bg-blue-100', 'bg-purple-100', 'bg-orange-100', 'bg-pink-100'];
 
+// URL Suara Notifikasi (Suara "Pop" yang lembut)
+const NOTIFICATION_SOUND = 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3';
+
 const Dashboard: React.FC<Props> = ({ user, relationship }) => {
   // Navigation State
   const [currentView, setCurrentView] = useState<'home' | 'wishlist' | 'savings' | 'chat' | 'profile'>('home');
@@ -147,12 +150,26 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
       const fetchedMsgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
       setMessages(fetchedMsgs);
 
-      if (!isFirstLoadRef.current && currentView !== 'chat') {
+      if (!isFirstLoadRef.current) {
         snapshot.docChanges().forEach((change) => {
           if (change.type === 'added') {
             const msg = change.doc.data() as Message;
+            // Jika pesan bukan dari saya (dari partner)
             if (msg.senderId !== user.uid) {
-              setUnreadCount(prev => prev + 1);
+              
+              // 1. Play Sound
+              try {
+                const audio = new Audio(NOTIFICATION_SOUND);
+                audio.volume = 0.5; // Set volume 50%
+                audio.play().catch(e => console.log("Audio autoplay blocked by browser", e));
+              } catch (e) {
+                console.error("Gagal memutar audio", e);
+              }
+
+              // 2. Update Badge jika tidak di halaman chat
+              if (currentView !== 'chat') {
+                setUnreadCount(prev => prev + 1);
+              }
             }
           }
         });
