@@ -31,6 +31,13 @@ export interface WishlistItem {
   budget: 'free' | 'low' | 'medium' | 'high';
 }
 
+export interface Message {
+  id: string;
+  text: string;
+  senderId: string;
+  createdAt: number;
+}
+
 export enum TabType {
   PLACES = 'places',
   ACTIVITIES = 'activities',
