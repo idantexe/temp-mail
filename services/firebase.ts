@@ -3,7 +3,7 @@ import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/
 import { 
   getFirestore, collection, doc, getDoc, setDoc, updateDoc, 
   deleteDoc, query, where, getDocs, addDoc, onSnapshot, 
-  orderBy, serverTimestamp, arrayUnion, Timestamp
+  orderBy, serverTimestamp, arrayUnion, Timestamp, writeBatch, arrayRemove
 } from "firebase/firestore";
 import { UserProfile, Relationship } from "../types";
 
@@ -68,9 +68,10 @@ const generateInviteCode = () => {
 
 export const createRelationship = async (user: UserProfile) => {
   const code = generateInviteCode();
-  // Create a new document reference with an auto-generated ID
-  const newRelRef = doc(collection(db, "relationships"));
+  const batch = writeBatch(db);
   
+  // 1. Create Relationship Doc
+  const newRelRef = doc(collection(db, "relationships"));
   const newRel: Relationship = {
     id: newRelRef.id,
     code: code,
@@ -78,15 +79,13 @@ export const createRelationship = async (user: UserProfile) => {
     startDate: new Date().toISOString().split('T')[0],
     partnerIds: [user.uid]
   };
+  batch.set(newRelRef, newRel);
 
-  await setDoc(newRelRef, newRel);
-
-  // Update User
+  // 2. Update User Doc
   const userRef = doc(db, "users", user.uid);
-  await updateDoc(userRef, {
-    relationshipId: newRel.id
-  });
+  batch.update(userRef, { relationshipId: newRel.id });
 
+  await batch.commit();
   return newRel;
 };
 
@@ -113,19 +112,37 @@ export const joinRelationship = async (user: UserProfile, code: string) => {
     throw new Error("Hubungan ini sudah penuh (max 2 orang).");
   }
 
-  // Add user to relationship
-  const relRef = doc(db, "relationships", relData.id);
-  await updateDoc(relRef, {
-    partnerIds: arrayUnion(user.uid)
-  });
+  const batch = writeBatch(db);
 
-  // Update user
+  // 1. Add user to relationship
+  const relRef = doc(db, "relationships", relData.id);
+  batch.update(relRef, { partnerIds: arrayUnion(user.uid) });
+
+  // 2. Update user
   const userRef = doc(db, "users", user.uid);
-  await updateDoc(userRef, {
-    relationshipId: relData.id
-  });
+  batch.update(userRef, { relationshipId: relData.id });
+
+  await batch.commit();
 
   return { ...relData, partnerIds: [...relData.partnerIds, user.uid] };
+};
+
+export const leaveRelationship = async (userId: string, relationshipId: string) => {
+  const batch = writeBatch(db);
+
+  // 1. Remove user from relationship partnerIds
+  const relRef = doc(db, "relationships", relationshipId);
+  batch.update(relRef, { 
+    partnerIds: arrayRemove(userId) 
+  });
+
+  // 2. Set user's relationshipId to null
+  const userRef = doc(db, "users", userId);
+  batch.update(userRef, { 
+    relationshipId: null 
+  });
+
+  await batch.commit();
 };
 
 export const getUserProfile = async (uid: string): Promise<UserProfile | null> => {

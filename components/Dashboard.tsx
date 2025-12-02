@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { UserProfile, Relationship, TabType, WishlistItem } from '../types';
-import { db, auth, logout } from '../services/firebase';
+import { db, auth, logout, leaveRelationship } from '../services/firebase';
 import { 
   collection, query, orderBy, onSnapshot, 
   addDoc, updateDoc, doc, deleteDoc 
@@ -8,7 +8,7 @@ import {
 import { generateIdeas, generatePlan } from '../services/geminiService';
 import { 
   Heart, MapPin, Calendar, Star, Plus, Link as LinkIcon, 
-  Trash2, ExternalLink, CheckCircle, Sparkles, X, LogOut, Copy, Settings, Cloud, Loader2 
+  Trash2, ExternalLink, CheckCircle, Sparkles, X, LogOut, Copy, Settings, Cloud, Loader2, DoorOpen 
 } from 'lucide-react';
 
 interface Props {
@@ -106,6 +106,19 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
     setStartDate(date);
     const relRef = doc(db, "relationships", relationship.id);
     await updateDoc(relRef, { startDate: date });
+  };
+
+  const handleLeaveRelationship = async () => {
+    const confirmMsg = "Apakah kamu yakin ingin meninggalkan ruangan ini? \n\nSemua data di ruangan ini akan tetap ada, tapi kamu harus memasukkan kode invite lagi jika ingin kembali.";
+    if (window.confirm(confirmMsg)) {
+      try {
+        await leaveRelationship(user.uid, relationship.id);
+        // App.tsx logic will handle the redirect automatically because user.relationshipId becomes null
+      } catch (e) {
+        alert("Gagal meninggalkan ruangan. Coba lagi.");
+        console.error(e);
+      }
+    }
   };
 
   // AI Logic
@@ -370,9 +383,14 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
                 />
               </div>
 
-              <button onClick={() => logout()} className="w-full py-3 rounded-xl border border-red-100 text-red-500 font-medium hover:bg-red-50 flex items-center justify-center gap-2">
-                <LogOut className="w-4 h-4" /> Sign Out
-              </button>
+              <div className="border-t border-gray-100 pt-4 space-y-3">
+                 <button onClick={handleLeaveRelationship} className="w-full py-3 rounded-xl border border-orange-100 text-orange-500 font-medium hover:bg-orange-50 flex items-center justify-center gap-2">
+                    <DoorOpen className="w-4 h-4" /> Leave Space
+                 </button>
+                 <button onClick={() => logout()} className="w-full py-3 rounded-xl border border-red-100 text-red-500 font-medium hover:bg-red-50 flex items-center justify-center gap-2">
+                    <LogOut className="w-4 h-4" /> Sign Out
+                 </button>
+              </div>
             </div>
           </div>
         </div>
