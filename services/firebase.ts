@@ -8,6 +8,9 @@ import {
 import { UserProfile, Relationship } from "../types";
 
 // --- KONFIGURASI FIREBASE ---
+// PENTING: Jika muncul error "auth/unauthorized-domain",
+// Masukkan domain Vercel kamu (contoh: idantmail.vercel.app)
+// ke Firebase Console -> Authentication -> Settings -> Authorized Domains
 const firebaseConfig = {
   apiKey: "AIzaSyDiMfLbiUlgyMh69hFr4-SLmfqwZ4vsZsU", 
   authDomain: "couplewishlist.firebaseapp.com",

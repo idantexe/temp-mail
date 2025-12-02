@@ -1,4 +1,5 @@
 {
   "name": "Our Journey - Couple Wishlist",
-  "description": "A shared wishlist application for couples to track places to visit, activities, and dreams. Features real-time syncing, partner pairing via invite code, and AI suggestions."
+  "description": "A shared wishlist application for couples to track places to visit, activities, and dreams. Features real-time syncing, partner pairing via invite code, and AI suggestions.",
+  "requestFramePermissions": []
 }

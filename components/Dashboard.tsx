@@ -41,6 +41,15 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
   const [aiMode, setAiMode] = useState<'idea' | 'plan'>('idea');
   const [selectedItemForPlan, setSelectedItemForPlan] = useState<WishlistItem | null>(null);
 
+  // Safe check for API Key presence
+  const hasAiKey = () => {
+    try {
+      return !!process.env.API_KEY;
+    } catch {
+      return false;
+    }
+  };
+
   useEffect(() => {
     // Listen to Items
     const itemsRef = collection(db, "relationships", relationship.id, "items");
@@ -208,7 +217,7 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
             {activeTab === TabType.ACTIVITIES && "Hal seru yang ingin dilakukan..."}
             {activeTab === TabType.HOPES && "Mimpi masa depan kita..."}
           </p>
-          {process.env.API_KEY && (
+          {hasAiKey() && (
             <button onClick={handleAiIdea} className="text-xs bg-white border border-secondary/30 text-secondary px-3 py-1.5 rounded-full flex items-center gap-1 hover:bg-secondary/5 transition-colors">
               <Sparkles className="w-3 h-3" /> Ide AI
             </button>
@@ -260,7 +269,7 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
                        Link <ExternalLink className="w-3 h-3" />
                     </a>
                   )}
-                  {!item.completed && process.env.API_KEY && (
+                  {!item.completed && hasAiKey() && (
                     <button onClick={() => handleAiPlan(item)} className="flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-full bg-secondary/10 text-secondary hover:bg-secondary/20 transition-colors">
                        <Sparkles className="w-3 h-3" /> Plan
                     </button>

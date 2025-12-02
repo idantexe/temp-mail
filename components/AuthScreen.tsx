@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Heart, Loader2 } from 'lucide-react';
+import { Heart, Loader2, AlertCircle } from 'lucide-react';
 import { signInWithGoogle } from '../services/firebase';
 
 const AuthScreen: React.FC = () => {
@@ -12,10 +12,17 @@ const AuthScreen: React.FC = () => {
     try {
       await signInWithGoogle();
     } catch (err: any) {
+      console.error("Login Error:", err);
+      
+      // Handle specific Firebase errors
       if(err.code === 'auth/popup-closed-by-user') {
         setError('Login dibatalkan.');
+      } else if (err.code === 'auth/unauthorized-domain') {
+        setError('DOMAIN BELUM DIIZINKAN. Buka Firebase Console > Authentication > Settings > Authorized Domains, lalu tambahkan domain aplikasi ini.');
+      } else if (err.code === 'auth/configuration-not-found') {
+        setError('Config Firebase Auth belum diatur di Console.');
       } else {
-        setError('Gagal login. Cek koneksi atau konfigurasi Firebase.');
+        setError(`Gagal login: ${err.message}`);
       }
     } finally {
       setLoading(false);
@@ -39,8 +46,9 @@ const AuthScreen: React.FC = () => {
         </p>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-50 text-red-600 text-xs rounded-xl border border-red-100">
-            {error}
+          <div className="mb-6 p-4 bg-red-50 text-red-600 text-xs rounded-xl border border-red-100 flex gap-2 items-start text-left">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+            <span className="leading-relaxed">{error}</span>
           </div>
         )}
 
