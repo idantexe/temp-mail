@@ -6,9 +6,9 @@ import {
   collection, query, orderBy, onSnapshot, 
   addDoc, updateDoc, doc, deleteDoc, where, getDocs, limit, writeBatch, increment
 } from 'firebase/firestore';
-import { generateIdeas, generatePlan, generateRouletteSuggestion } from '../services/geminiService';
+import { generatePlan, generateRouletteSuggestion } from '../services/geminiService';
 import { 
-  Heart, MapPin, Calendar, Star, Plus, Link as LinkIcon, 
+  Heart, Calendar, Plus, Link as LinkIcon, 
   Trash2, CheckCircle, Sparkles, X, LogOut, Copy, Settings, 
   Loader2, Home, List, User, RefreshCw, Edit2, Users, MessageCircle, Send, ArrowUp, ArrowDown, Check, Wallet, TrendingUp, Minus, History, Clock
 } from 'lucide-react';
@@ -18,15 +18,7 @@ interface Props {
   relationship: Relationship;
 }
 
-const BUDGET_LABELS = {
-  free: 'Free',
-  low: '$ Hemat',
-  medium: '$$ Sedang',
-  high: '$$$ Mewah'
-};
-
 const CARD_COLORS = ['bg-emerald-100', 'bg-blue-100', 'bg-purple-100', 'bg-orange-100', 'bg-pink-100'];
-const NOTIFICATION_SOUND = '/sounds/notification.mp3';
 
 const Dashboard: React.FC<Props> = ({ user, relationship }) => {
   // Navigation State
@@ -38,7 +30,7 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
   const [savings, setSavings] = useState<SavingGoal[]>([]); 
   const [messages, setMessages] = useState<Message[]>([]); 
   const [partners, setPartners] = useState<UserProfile[]>([]);
-  const [loading, setLoading] = useState(true);
+  // loading state handled by parent App.tsx usually, but kept here for internal async ops
   
   // Savings History Data
   const [historyGoalId, setHistoryGoalId] = useState<string | null>(null);
@@ -54,7 +46,6 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
   const [editMessageText, setEditMessageText] = useState(''); 
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null); 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const isFirstLoadRef = useRef(true);
 
   // Modals & Forms
   const [showAddModal, setShowAddModal] = useState(false);
@@ -109,7 +100,6 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
         return b.createdAt - a.createdAt;
       });
       setItems(sorted);
-      setLoading(false);
     });
     return () => unsubscribe();
   }, [relationship.id]);
@@ -138,32 +128,18 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
     return () => unsubscribe();
   }, [historyGoalId, relationship.id]);
 
-  // Messages Listener (Simple & Robust Version)
+  // Messages Listener (NORMAL VERSION - NO SOUND)
   useEffect(() => {
     const messagesRef = collection(db, "relationships", relationship.id, "messages");
+    // Limit 50 to prevent overload
     const q = query(messagesRef, orderBy("createdAt", "asc"), limit(50));
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedMsgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
       setMessages(fetchedMsgs);
-
-      // Play sound only on NEW messages from PARTNER
-      if (!isFirstLoadRef.current) {
-         snapshot.docChanges().forEach((change) => {
-            if (change.type === 'added') {
-              const msg = change.doc.data() as Message;
-              if (msg.senderId !== user.uid) {
-                 const audio = new Audio(NOTIFICATION_SOUND);
-                 audio.volume = 0.5;
-                 audio.play().catch(() => {}); // Ignore autoplay errors
-              }
-            }
-         });
-      }
-      isFirstLoadRef.current = false;
     });
     return () => unsubscribe();
-  }, [relationship.id, user.uid]);
+  }, [relationship.id]);
 
   // Auto scroll Chat
   useEffect(() => {
@@ -192,15 +168,20 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessageText.trim()) return;
+    const textToSend = newMessageText;
+    setNewMessageText(''); // Optimistic clear
+
     try {
       const messagesRef = collection(db, "relationships", relationship.id, "messages");
       await addDoc(messagesRef, {
-        text: newMessageText,
+        text: textToSend,
         senderId: user.uid,
         createdAt: Date.now()
       });
-      setNewMessageText('');
-    } catch (error) { alert("Gagal kirim pesan."); }
+    } catch (error) { 
+      alert("Gagal kirim pesan.");
+      setNewMessageText(textToSend); // Restore on fail
+    }
   };
 
   const handleCreateSaving = async (e: React.FormEvent) => {
@@ -219,7 +200,7 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
     } catch (err) { alert("Gagal."); }
   };
 
-  // NEW: Update Saving Amount with History Tracking
+  // Update Saving Amount with History Tracking
   const handleUpdateSavingAmount = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!topUpGoalId || !topUpAmount) return;
@@ -527,8 +508,8 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
   );
 
   const renderChat = () => (
-    <div className="h-[calc(100vh-80px)] flex flex-col pt-4 bg-[#FDFBF7] animate-in fade-in">
-      <div className="flex-1 overflow-y-auto px-4 space-y-3 pb-4">
+    <div className="flex flex-col h-[calc(100vh-80px)] bg-[#FDFBF7] animate-in fade-in">
+      <div className="flex-1 overflow-y-auto p-4 space-y-3 pb-4">
         {messages.map((msg, idx) => {
           const isMe = msg.senderId === user.uid;
           const showAvatar = !isMe && (idx === 0 || messages[idx-1].senderId !== msg.senderId);
@@ -569,7 +550,7 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
         })}
         <div ref={messagesEndRef} />
       </div>
-      <div className="p-4 bg-white border-t border-gray-100 relative z-40 pb-24">
+      <div className="p-4 bg-white border-t border-gray-100 relative z-50">
          <form onSubmit={handleSendMessage} className="flex gap-2">
            <input className="flex-1 bg-gray-50 rounded-full px-5 py-3 text-sm focus:outline-none focus:ring-1 focus:ring-[#8E6E6E] border border-gray-100" placeholder="Ketik pesan..." value={newMessageText} onChange={e => setNewMessageText(e.target.value)} />
            <button type="submit" disabled={!newMessageText.trim()} className="w-12 h-12 bg-[#8E6E6E] text-white rounded-full flex items-center justify-center shadow-lg disabled:opacity-50"><Send className="w-5 h-5 ml-0.5" /></button>
