@@ -805,7 +805,7 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* FIXED: Added 'relative z-40' to bring input above navbar */}
+      {/* FIXED: Input area with relative z-40 to be above messages but BELOW nav (which is z-50) */}
       <div className="p-4 bg-white border-t border-gray-100 pb-24 relative z-40">
          <form onSubmit={handleSendMessage} className="flex gap-2">
            <input 
@@ -918,7 +918,8 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
       {currentView === 'chat' && renderChat()}
       {currentView === 'profile' && renderProfile()}
 
-      <nav className="fixed bottom-0 left-0 w-full bg-white border-t border-gray-100 px-6 py-3 flex justify-between items-center z-30 pb-6">
+      {/* FIXED: z-50 ensures Nav is ALWAYS on top of everything else (input background, etc.) */}
+      <nav className="fixed bottom-0 left-0 w-full bg-white border-t border-gray-100 px-6 py-3 flex justify-between items-center z-50 pb-6">
         <button onClick={() => setCurrentView('home')} className={`p-3 rounded-2xl transition-all ${currentView === 'home' ? 'bg-[#8E6E6E] text-white shadow-lg shadow-[#8E6E6E]/20' : 'text-gray-300 hover:text-gray-500'}`}>
           <Home className="w-6 h-6" />
         </button>
