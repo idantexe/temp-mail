@@ -5,10 +5,10 @@ import { Sparkles, Users, ArrowRight, Loader2 } from 'lucide-react';
 
 interface Props {
   user: UserProfile;
-  onComplete: () => void;
+  // onComplete dihapus, tidak diperlukan lagi
 }
 
-const OnboardingScreen: React.FC<Props> = ({ user, onComplete }) => {
+const OnboardingScreen: React.FC<Props> = ({ user }) => {
   const [mode, setMode] = useState<'select' | 'create' | 'join'>('select');
   const [inviteCode, setInviteCode] = useState('');
   const [loading, setLoading] = useState(false);
@@ -18,11 +18,10 @@ const OnboardingScreen: React.FC<Props> = ({ user, onComplete }) => {
     setLoading(true);
     try {
       await createRelationship(user);
-      onComplete(); // Trigger refresh in parent
+      // Tidak perlu redirect manual, App.tsx akan mendeteksi perubahan relationshipId
     } catch (e) {
       setError("Gagal membuat ruang baru.");
-    } finally {
-      setLoading(false);
+      setLoading(false); // Hanya matikan loading jika error
     }
   };
 
@@ -34,88 +33,95 @@ const OnboardingScreen: React.FC<Props> = ({ user, onComplete }) => {
     setLoading(true);
     try {
       await joinRelationship(user, inviteCode);
-      onComplete();
+      // Tidak perlu redirect manual
     } catch (e: any) {
       setError(e.message || "Gagal bergabung.");
-    } finally {
-      setLoading(false);
+      setLoading(false); // Hanya matikan loading jika error
     }
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-background">
-      <div className="w-full max-w-md">
-        <h1 className="text-3xl font-handwriting text-primary text-center mb-2">Halo, {user.displayName?.split(' ')[0]}!</h1>
-        <p className="text-center text-gray-500 mb-8 text-sm">Mari mulai mencatat perjalanan cintamu.</p>
+    <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-[#FDFBF7]">
+      <div className="w-full max-w-md animate-in slide-in-from-bottom-8 duration-500">
+        <h1 className="text-4xl font-handwriting text-[#8E6E6E] text-center mb-2">
+          Halo, {user.displayName?.split(' ')[0]}!
+        </h1>
+        <p className="text-center text-gray-400 mb-10 text-sm font-medium">
+          Satu langkah lagi menuju ruang rahasia kalian.
+        </p>
 
         {mode === 'select' && (
           <div className="grid gap-4">
             <button 
               onClick={() => setMode('create')}
-              className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center gap-3 hover:border-primary/30 transition-all group"
+              className="bg-white p-8 rounded-[32px] shadow-sm border border-[#EBE0D0] flex flex-col items-center gap-4 hover:border-[#8E6E6E] hover:shadow-lg hover:shadow-[#8E6E6E]/10 transition-all group relative overflow-hidden"
             >
-              <div className="w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center group-hover:bg-primary/20 transition-colors">
-                <Sparkles className="w-6 h-6 text-primary" />
+              <div className="absolute top-0 right-0 w-24 h-24 bg-[#8E6E6E]/5 rounded-bl-[100px] transition-all group-hover:bg-[#8E6E6E]/10"></div>
+              <div className="w-14 h-14 bg-[#8E6E6E] text-white rounded-2xl flex items-center justify-center shadow-lg shadow-[#8E6E6E]/30 group-hover:scale-110 transition-transform">
+                <Sparkles className="w-7 h-7" />
               </div>
               <div className="text-center">
-                <h3 className="font-semibold text-gray-800">Buat Ruang Baru</h3>
-                <p className="text-xs text-gray-400 mt-1">Dapatkan kode invite untuk pasanganmu.</p>
+                <h3 className="text-lg font-bold text-gray-800">Buat Ruang Baru</h3>
+                <p className="text-xs text-gray-500 mt-1">Saya ingin mengundang pasangan.</p>
               </div>
             </button>
 
             <button 
               onClick={() => setMode('join')}
-              className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col items-center gap-3 hover:border-secondary/30 transition-all group"
+              className="bg-white p-8 rounded-[32px] shadow-sm border border-[#EBE0D0] flex flex-col items-center gap-4 hover:border-[#B09B7A] hover:shadow-lg hover:shadow-[#B09B7A]/10 transition-all group relative overflow-hidden"
             >
-              <div className="w-12 h-12 bg-secondary/10 rounded-full flex items-center justify-center group-hover:bg-secondary/20 transition-colors">
-                <Users className="w-6 h-6 text-secondary" />
+              <div className="absolute top-0 left-0 w-24 h-24 bg-[#B09B7A]/5 rounded-br-[100px] transition-all group-hover:bg-[#B09B7A]/10"></div>
+              <div className="w-14 h-14 bg-[#B09B7A] text-white rounded-2xl flex items-center justify-center shadow-lg shadow-[#B09B7A]/30 group-hover:scale-110 transition-transform">
+                <Users className="w-7 h-7" />
               </div>
               <div className="text-center">
-                <h3 className="font-semibold text-gray-800">Gabung via Kode</h3>
-                <p className="text-xs text-gray-400 mt-1">Masukkan kode yang diberikan pasangan.</p>
+                <h3 className="text-lg font-bold text-gray-800">Masuk Ruangan</h3>
+                <p className="text-xs text-gray-500 mt-1">Saya punya kode undangan.</p>
               </div>
             </button>
           </div>
         )}
 
         {mode === 'create' && (
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 text-center">
-            <h3 className="text-lg font-semibold mb-2">Membuat Ruang...</h3>
-            <p className="text-sm text-gray-500 mb-6">Kamu akan menjadi admin pertama di hubungan ini.</p>
+          <div className="bg-white p-8 rounded-[32px] shadow-xl border border-gray-100 text-center">
+            <h3 className="text-xl font-bold mb-2 text-gray-800">Setup Ruangan</h3>
+            <p className="text-sm text-gray-400 mb-8">Kamu akan menjadi admin room ini.</p>
             <button 
               onClick={handleCreate} 
               disabled={loading}
-              className="w-full bg-primary text-white py-3 rounded-xl font-medium shadow-lg shadow-primary/20 flex items-center justify-center gap-2"
+              className="w-full bg-[#8E6E6E] text-white py-4 rounded-2xl font-bold shadow-lg shadow-[#8E6E6E]/30 flex items-center justify-center gap-2 hover:bg-[#785c5c] transition-colors"
             >
-              {loading ? <Loader2 className="animate-spin" /> : "Buat Sekarang"}
+              {loading ? <Loader2 className="animate-spin" /> : "Buat Ruang Sekarang"}
             </button>
-            <button onClick={() => setMode('select')} className="mt-4 text-xs text-gray-400 underline">Kembali</button>
+            <button onClick={() => setMode('select')} className="mt-6 text-xs text-gray-400 hover:text-gray-600">Batal</button>
           </div>
         )}
 
         {mode === 'join' && (
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-            <h3 className="text-lg font-semibold mb-4 text-center">Masukkan Kode</h3>
-            <input 
-              type="text" 
-              placeholder="Contoh: AB12CD"
-              className="w-full text-center text-2xl tracking-widest uppercase font-bold border-b-2 border-gray-200 focus:border-primary outline-none py-2 mb-6 bg-transparent placeholder:text-gray-200"
-              value={inviteCode}
-              onChange={(e) => {
-                setInviteCode(e.target.value.toUpperCase());
-                setError('');
-              }}
-              maxLength={6}
-            />
-            {error && <p className="text-red-500 text-xs text-center mb-4">{error}</p>}
+          <div className="bg-white p-8 rounded-[32px] shadow-xl border border-gray-100">
+            <h3 className="text-xl font-bold mb-6 text-center text-gray-800">Input Kode Cinta</h3>
+            <div className="relative mb-6">
+              <input 
+                type="text" 
+                placeholder="000000"
+                className="w-full text-center text-3xl tracking-[0.5em] uppercase font-bold border-2 border-gray-100 focus:border-[#B09B7A] rounded-2xl py-4 bg-gray-50 focus:bg-white transition-all outline-none text-gray-700 placeholder:text-gray-200"
+                value={inviteCode}
+                onChange={(e) => {
+                  setInviteCode(e.target.value.toUpperCase());
+                  setError('');
+                }}
+                maxLength={6}
+              />
+            </div>
+            {error && <p className="text-red-500 text-xs text-center mb-6 bg-red-50 p-2 rounded-lg">{error}</p>}
             <button 
               onClick={handleJoin} 
               disabled={loading || inviteCode.length < 6}
-              className="w-full bg-secondary text-white py-3 rounded-xl font-medium shadow-lg shadow-secondary/20 flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full bg-[#B09B7A] text-white py-4 rounded-2xl font-bold shadow-lg shadow-[#B09B7A]/30 flex items-center justify-center gap-2 disabled:opacity-50 disabled:shadow-none hover:bg-[#968366] transition-all"
             >
-               {loading ? <Loader2 className="animate-spin" /> : <>Gabung <ArrowRight className="w-4 h-4" /></>}
+               {loading ? <Loader2 className="animate-spin" /> : <>Masuk <ArrowRight className="w-5 h-5" /></>}
             </button>
-            <button onClick={() => setMode('select')} className="mt-4 w-full text-center text-xs text-gray-400 underline">Kembali</button>
+            <button onClick={() => setMode('select')} className="mt-6 w-full text-center text-xs text-gray-400 hover:text-gray-600">Batal</button>
           </div>
         )}
       </div>

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { auth, db } from './services/firebase';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { UserProfile, Relationship } from './types';
 import AuthScreen from './components/AuthScreen';
@@ -9,74 +9,112 @@ import Dashboard from './components/Dashboard';
 import { Loader2 } from 'lucide-react';
 
 function App() {
-  const [user, setUser] = useState<UserProfile | null>(null);
+  // State Data
+  const [authUser, setAuthUser] = useState<User | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [relationship, setRelationship] = useState<Relationship | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [authChecked, setAuthChecked] = useState(false);
 
+  // Loading States (Granular control)
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isProfileLoading, setIsProfileLoading] = useState(false);
+  const [isRelLoading, setIsRelLoading] = useState(false);
+
+  // 1. Auth Listener: Cek apakah user login Google/Guest
   useEffect(() => {
-    // 1. Listen to Auth State
-    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        // 2. If Logged in, listen to User Profile changes
-        const userRef = doc(db, "users", firebaseUser.uid);
-        const unsubUser = onSnapshot(userRef, (docSnap) => {
-          if (docSnap.exists()) {
-            const userData = docSnap.data() as UserProfile;
-            setUser(userData);
-            
-            // 3. If User has a relationship, listen to it
-            if (userData.relationshipId) {
-              const relRef = doc(db, "relationships", userData.relationshipId);
-              // We don't unsubscribe from this inner listener easily in this simplified useEffect
-              // In production, manage subscriptions with useRef or separate effects
-              onSnapshot(relRef, (relSnap) => {
-                if (relSnap.exists()) {
-                  setRelationship({ id: relSnap.id, ...relSnap.data() } as Relationship);
-                }
-                setLoading(false);
-              });
-            } else {
-              setRelationship(null);
-              setLoading(false);
-            }
-          } else {
-            // New user not in DB yet (edge case handled in signIn)
-            setLoading(false);
-          }
-        });
-        return () => unsubUser();
-      } else {
-        setUser(null);
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setAuthUser(user);
+      setIsAuthLoading(false);
+      if (!user) {
+        // Reset state jika logout
+        setUserProfile(null);
         setRelationship(null);
-        setLoading(false);
       }
-      setAuthChecked(true);
     });
-
-    return () => unsubscribeAuth();
+    return () => unsubscribe();
   }, []);
 
-  if (!authChecked || loading) {
+  // 2. User Profile Listener: Cek data user di Firestore
+  useEffect(() => {
+    if (!authUser) return;
+
+    setIsProfileLoading(true);
+    const userRef = doc(db, "users", authUser.uid);
+    
+    const unsubscribe = onSnapshot(userRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setUserProfile(docSnap.data() as UserProfile);
+      } else {
+        // Edge case: Auth sukses tapi data firestore belum dibuat (biasanya sangat cepat)
+        setUserProfile(null);
+      }
+      setIsProfileLoading(false);
+    }, (err) => {
+      console.error("User Listener Error:", err);
+      setIsProfileLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [authUser]);
+
+  // 3. Relationship Listener: Cek data relationship jika user punya ID-nya
+  useEffect(() => {
+    if (!userProfile?.relationshipId) {
+      setRelationship(null);
+      return;
+    }
+
+    setIsRelLoading(true);
+    const relRef = doc(db, "relationships", userProfile.relationshipId);
+
+    const unsubscribe = onSnapshot(relRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setRelationship({ id: docSnap.id, ...docSnap.data() } as Relationship);
+      } else {
+        setRelationship(null);
+      }
+      setIsRelLoading(false);
+    }, (err) => {
+      console.error("Rel Listener Error:", err);
+      setIsRelLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [userProfile?.relationshipId]);
+
+  // --- RENDER LOGIC ---
+
+  // Tampilan Loading Global
+  if (isAuthLoading || (authUser && isProfileLoading) || (userProfile?.relationshipId && isRelLoading)) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#FDFBF7]">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#FDFBF7] gap-3">
         <Loader2 className="w-10 h-10 animate-spin text-[#8E6E6E]" />
+        <p className="text-xs text-gray-400 font-medium animate-pulse">Menyiapkan ruang kenangan...</p>
       </div>
     );
   }
 
-  // State 1: Not Logged In
-  if (!user) {
+  // 1. Belum Login
+  if (!authUser) {
     return <AuthScreen />;
   }
 
-  // State 2: Logged In, but No Relationship (Needs Invite/Create)
-  if (!relationship) {
-    return <OnboardingScreen user={user} onComplete={() => setLoading(true)} />;
+  // 2. Sudah Login, tapi Profile Firestore belum siap (Sangat jarang terjadi karena loading dicover diatas)
+  if (!userProfile) {
+    return null; 
   }
 
-  // State 3: Fully Authorized
-  return <Dashboard user={user} relationship={relationship} />;
+  // 3. Sudah punya Profile, tapi belum punya Relationship (Masuk Onboarding)
+  if (!userProfile.relationshipId) {
+    return <OnboardingScreen user={userProfile} />;
+  }
+
+  // 4. Punya Relationship ID tapi datanya null (Misal terhapus manual di DB)
+  if (!relationship) {
+     return <OnboardingScreen user={userProfile} />; // Fallback ke onboarding
+  }
+
+  // 5. Semuanya Lengkap -> Dashboard
+  return <Dashboard user={userProfile} relationship={relationship} />;
 }
 
 export default App;

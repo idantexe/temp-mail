@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, signInAnonymously } from "firebase/auth";
 import { 
   getFirestore, collection, doc, getDoc, setDoc, updateDoc, 
   deleteDoc, query, where, getDocs, addDoc, onSnapshot, 
@@ -28,26 +28,41 @@ const googleProvider = new GoogleAuthProvider();
 
 // --- AUTH SERVICE ---
 
+const createUserProfile = async (user: any, isGuest: boolean = false) => {
+  const userRef = doc(db, "users", user.uid);
+  const userSnap = await getDoc(userRef);
+  
+  if (!userSnap.exists()) {
+    await setDoc(userRef, {
+      uid: user.uid,
+      displayName: user.displayName || (isGuest ? "Guest Partner" : "User"),
+      email: user.email,
+      photoURL: user.photoURL, // Guest will be null
+      relationshipId: null,
+      isGuest: isGuest, // Flag to identify guest
+      createdAt: serverTimestamp()
+    });
+  }
+};
+
 export const signInWithGoogle = async () => {
   try {
     const result = await signInWithPopup(auth, googleProvider);
-    // Create or update user profile in Firestore
-    const userRef = doc(db, "users", result.user.uid);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      await setDoc(userRef, {
-        uid: result.user.uid,
-        displayName: result.user.displayName,
-        email: result.user.email,
-        photoURL: result.user.photoURL,
-        relationshipId: null,
-        createdAt: serverTimestamp()
-      });
-    }
+    await createUserProfile(result.user, false);
     return result.user;
   } catch (error) {
     console.error("Error signing in", error);
+    throw error;
+  }
+};
+
+export const signInAsGuest = async () => {
+  try {
+    const result = await signInAnonymously(auth);
+    await createUserProfile(result.user, true);
+    return result.user;
+  } catch (error) {
+    console.error("Error signing in as guest", error);
     throw error;
   }
 };

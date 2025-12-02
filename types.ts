@@ -12,6 +12,8 @@ export interface Relationship {
   createdAt: number;
   startDate: string; // "YYYY-MM-DD"
   partnerIds: string[];
+  loveNote?: string; // Fitur baru: Shared note
+  loveNoteUpdater?: string; // Siapa yang terakhir update
 }
 
 export interface WishlistItem {
@@ -24,6 +26,9 @@ export interface WishlistItem {
   completed: boolean;
   createdBy: string;
   createdAt: number;
+  // Fitur Baru
+  priority: 'high' | 'medium' | 'low';
+  budget: 'free' | 'low' | 'medium' | 'high';
 }
 
 export enum TabType {

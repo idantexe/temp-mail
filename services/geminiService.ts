@@ -50,3 +50,21 @@ export const generatePlan = async (title: string, category: string) => {
     throw new Error("Gagal menghubungi AI.");
   }
 };
+
+export const generateRouletteSuggestion = async () => {
+  if (!apiKey) throw new Error("API Key belum dikonfigurasi.");
+
+  const prompt = `Berikan SATU saja ide kegiatan spontan untuk dilakukan pasangan sekarang juga.
+  Kegiatan harus seru, simple, dan bisa dilakukan tanpa persiapan ribet.
+  Jawab langsung dengan nama kegiatannya dan satu kalimat pendek cara melakukannya.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+    });
+    return response.text;
+  } catch (error) {
+    return "Jalan-jalan sore sambil cari jajanan baru!";
+  }
+};
