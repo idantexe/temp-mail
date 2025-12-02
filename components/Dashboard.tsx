@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { UserProfile, Relationship, TabType, WishlistItem, Message } from '../types';
+import { UserProfile, Relationship, TabType, WishlistItem, Message, SavingGoal } from '../types';
 import { db, logout, leaveRelationship } from '../services/firebase';
 import { 
   collection, query, orderBy, onSnapshot, 
-  addDoc, updateDoc, doc, deleteDoc, where, getDocs, limit, writeBatch
+  addDoc, updateDoc, doc, deleteDoc, where, getDocs, limit, writeBatch, increment
 } from 'firebase/firestore';
 import { generateIdeas, generatePlan, generateRouletteSuggestion } from '../services/geminiService';
 import { 
   Heart, MapPin, Calendar, Star, Plus, Link as LinkIcon, 
   Trash2, CheckCircle, Sparkles, X, LogOut, Copy, Settings, 
-  Loader2, Home, List, User, DollarSign, RefreshCw, Filter, Edit2, Users, MessageCircle, Send, GripVertical
+  Loader2, Home, List, User, DollarSign, RefreshCw, Filter, Edit2, Users, MessageCircle, Send, ArrowUp, ArrowDown, MoreHorizontal, Check, Wallet, TrendingUp, Minus
 } from 'lucide-react';
 
 interface Props {
@@ -24,45 +24,61 @@ const BUDGET_LABELS = {
   high: '$$$ Mewah'
 };
 
+const CARD_COLORS = ['bg-emerald-100', 'bg-blue-100', 'bg-purple-100', 'bg-orange-100', 'bg-pink-100'];
+
 const Dashboard: React.FC<Props> = ({ user, relationship }) => {
   // Navigation State
-  const [currentView, setCurrentView] = useState<'home' | 'wishlist' | 'chat' | 'profile'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'wishlist' | 'savings' | 'chat' | 'profile'>('home');
   const [activeTab, setActiveTab] = useState<TabType>(TabType.PLACES);
   
   // Data State
   const [items, setItems] = useState<WishlistItem[]>([]);
-  const [messages, setMessages] = useState<Message[]>([]); // Chat Messages
+  const [savings, setSavings] = useState<SavingGoal[]>([]); // Savings Data
+  const [messages, setMessages] = useState<Message[]>([]); 
   const [partners, setPartners] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   
   // Notification State
   const [unreadCount, setUnreadCount] = useState(0);
-  const isFirstLoadRef = useRef(true); // To prevent badge on initial load
+  const isFirstLoadRef = useRef(true); 
   
-  // Drag & Drop State
-  const [draggedItem, setDraggedItem] = useState<WishlistItem | null>(null);
-
   // Love Note State
   const [loveNote, setLoveNote] = useState(relationship.loveNote || '');
   const noteTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Chat State
   const [newMessageText, setNewMessageText] = useState('');
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null); 
+  const [editMessageText, setEditMessageText] = useState(''); 
+  const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null); 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Modals & Forms
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showSavingModal, setShowSavingModal] = useState(false); // Modal tambah target nabung
   const [showAIModal, setShowAIModal] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showDateModal, setShowDateModal] = useState(false);
   
-  // New Item Form
+  // --- FORM STATES ---
+  // Wishlist Form
+  const [editingItemId, setEditingItemId] = useState<string | null>(null); // Jika null = Create, jika isi = Edit
   const [newItemTitle, setNewItemTitle] = useState('');
   const [newItemLink, setNewItemLink] = useState('');
   const [newItemNote, setNewItemNote] = useState('');
   const [newItemTarget, setNewItemTarget] = useState('');
   const [newItemPriority, setNewItemPriority] = useState<'low'|'medium'|'high'>('medium');
   const [newItemBudget, setNewItemBudget] = useState<'free'|'low'|'medium'|'high'>('medium');
+  const [newItemPrice, setNewItemPrice] = useState<string>(''); // Nominal Budget (String biar gampang handle input)
+
+  // Saving Form (New Goal)
+  const [savingTitle, setSavingTitle] = useState('');
+  const [savingTarget, setSavingTarget] = useState('');
+
+  // Update Saving Amount Form
+  const [topUpGoalId, setTopUpGoalId] = useState<string | null>(null);
+  const [topUpAmount, setTopUpAmount] = useState('');
+  const [topUpMode, setTopUpMode] = useState<'add' | 'withdraw'>('add');
 
   // Edit Date Form
   const [newStartDate, setNewStartDate] = useState(relationship.startDate);
@@ -93,23 +109,31 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
   // Items Listener
   useEffect(() => {
     const itemsRef = collection(db, "relationships", relationship.id, "items");
-    // We order by createdAt desc initially from DB, but will sort by 'order' in client
     const q = query(itemsRef);
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as WishlistItem));
       
-      // Sort: Completed at bottom, then by 'order' asc, then by createdAt desc
       const sorted = fetched.sort((a, b) => {
         if (a.completed !== b.completed) return a.completed ? 1 : -1;
-        // If order exists, use it
         if (a.order !== undefined && b.order !== undefined) return a.order - b.order;
-        // Fallback to creation time
         return b.createdAt - a.createdAt;
       });
 
       setItems(sorted);
       setLoading(false);
+    });
+    return () => unsubscribe();
+  }, [relationship.id]);
+
+  // Savings Listener
+  useEffect(() => {
+    const savingsRef = collection(db, "relationships", relationship.id, "savings");
+    const q = query(savingsRef, orderBy("lastUpdated", "desc"));
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as SavingGoal));
+      setSavings(fetched);
     });
     return () => unsubscribe();
   }, [relationship.id]);
@@ -123,12 +147,10 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
       const fetchedMsgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
       setMessages(fetchedMsgs);
 
-      // Notification Logic
       if (!isFirstLoadRef.current && currentView !== 'chat') {
         snapshot.docChanges().forEach((change) => {
           if (change.type === 'added') {
             const msg = change.doc.data() as Message;
-            // Jika pesan baru bukan dari saya, tambah badge
             if (msg.senderId !== user.uid) {
               setUnreadCount(prev => prev + 1);
             }
@@ -141,12 +163,12 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
     return () => unsubscribe();
   }, [relationship.id, currentView, user.uid]);
 
-  // Auto scroll to bottom when new message arrives
+  // Auto scroll
   useEffect(() => {
     if (currentView === 'chat') {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, currentView]);
+  }, [messages, currentView, editingMessageId]);
 
   // Partners Fetcher
   useEffect(() => {
@@ -165,68 +187,39 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
     fetchPartners();
   }, [relationship.partnerIds]);
 
-  // --- DRAG AND DROP HANDLERS ---
-
-  const handleDragStart = (e: React.DragEvent, item: WishlistItem) => {
-    setDraggedItem(item);
-    e.dataTransfer.effectAllowed = "move";
-    // Set transparent drag image or styling could go here
-    if (e.currentTarget instanceof HTMLElement) {
-       e.currentTarget.style.opacity = '0.5';
-    }
+  // --- FORMATTER ---
+  const formatRupiah = (num: number) => {
+    return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num);
   };
 
-  const handleDragEnd = (e: React.DragEvent) => {
-     if (e.currentTarget instanceof HTMLElement) {
-       e.currentTarget.style.opacity = '1';
-    }
-    setDraggedItem(null);
-  }
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault(); // Necessary to allow dropping
-    e.dataTransfer.dropEffect = "move";
-  };
-
-  const handleDrop = async (e: React.DragEvent, targetItem: WishlistItem) => {
-    e.preventDefault();
-    if (!draggedItem || draggedItem.id === targetItem.id) return;
-
-    // 1. Reorder array locally to feel snappy
+  // --- REORDER HANDLERS ---
+  const handleMoveItem = async (item: WishlistItem, direction: 'up' | 'down') => {
     const currentList = items.filter(i => i.category === activeTab && !i.completed);
-    const updatedList = [...currentList];
+    const currentIndex = currentList.findIndex(i => i.id === item.id);
     
-    const dragIndex = updatedList.findIndex(i => i.id === draggedItem.id);
-    const hoverIndex = updatedList.findIndex(i => i.id === targetItem.id);
+    if (currentIndex === -1) return;
+    
+    const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= currentList.length) return;
 
-    if (dragIndex < 0 || hoverIndex < 0) return;
+    const targetItem = currentList[targetIndex];
 
-    // Remove from old index
-    updatedList.splice(dragIndex, 1);
-    // Insert at new index
-    updatedList.splice(hoverIndex, 0, draggedItem);
-
-    // 2. Batch update to Firestore
     try {
       const batch = writeBatch(db);
-      updatedList.forEach((item, index) => {
-        const itemRef = doc(db, "relationships", relationship.id, "items", item.id);
-        batch.update(itemRef, { order: index });
-      });
+      const itemRef = doc(db, "relationships", relationship.id, "items", item.id);
+      const targetRef = doc(db, "relationships", relationship.id, "items", targetItem.id);
+      batch.update(itemRef, { order: targetIndex });
+      batch.update(targetRef, { order: currentIndex });
       await batch.commit();
     } catch (error) {
-      console.error("Gagal menyimpan urutan:", error);
-      alert("Gagal mengubah posisi item.");
+      console.error("Gagal memindahkan item", error);
     }
   };
 
-
-  // --- ACTIONS ---
-
+  // --- CHAT ACTIONS ---
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessageText.trim()) return;
-
     try {
       const messagesRef = collection(db, "relationships", relationship.id, "messages");
       await addDoc(messagesRef, {
@@ -239,6 +232,38 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
       console.error("Gagal mengirim pesan", error);
     }
   };
+
+  const handleDeleteMessage = async (msgId: string) => {
+    if(confirm("Hapus pesan ini?")) {
+      try {
+        await deleteDoc(doc(db, "relationships", relationship.id, "messages", msgId));
+        setSelectedMessageId(null);
+      } catch (error) {
+        console.error("Gagal hapus pesan", error);
+      }
+    }
+  };
+
+  const handleStartEditMessage = (msg: Message) => {
+    setEditingMessageId(msg.id);
+    setEditMessageText(msg.text);
+    setSelectedMessageId(null); 
+  };
+
+  const handleSaveEditMessage = async () => {
+    if (!editingMessageId || !editMessageText.trim()) return;
+    try {
+      await updateDoc(doc(db, "relationships", relationship.id, "messages", editingMessageId), {
+        text: editMessageText
+      });
+      setEditingMessageId(null);
+      setEditMessageText('');
+    } catch (error) {
+      console.error("Gagal edit pesan", error);
+    }
+  };
+
+  // --- DASHBOARD ACTIONS (WISHLIST) ---
 
   const handleLoveNoteChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
@@ -265,17 +290,41 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
     }
   };
 
-  const handleAddItem = async (e: React.FormEvent) => {
+  // Open Modal for Create
+  const openAddModal = () => {
+    setEditingItemId(null);
+    setNewItemTitle('');
+    setNewItemLink('');
+    setNewItemNote('');
+    setNewItemTarget('');
+    setNewItemPrice('');
+    setNewItemPriority('medium');
+    setNewItemBudget('medium');
+    setShowAddModal(true);
+  };
+
+  // Open Modal for Edit
+  const openEditModal = (item: WishlistItem) => {
+    setEditingItemId(item.id);
+    setNewItemTitle(item.title);
+    setNewItemLink(item.link || '');
+    setNewItemNote(item.note || '');
+    setNewItemTarget(item.targetDate || '');
+    setNewItemPrice(item.priceEstimate ? item.priceEstimate.toString() : '');
+    setNewItemPriority(item.priority);
+    setNewItemBudget(item.budget);
+    setShowAddModal(true);
+  };
+
+  const handleSaveItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newItemTitle.trim()) return;
 
     try {
       const itemsRef = collection(db, "relationships", relationship.id, "items");
-      // Get current max order to put new item at bottom, or 0 to top. Let's put at top (0)
-      // Actually, standard is bottom. Let's put it at length.
-      const currentLen = items.filter(i => i.category === activeTab).length;
+      const price = newItemPrice ? parseInt(newItemPrice.replace(/\D/g, '')) : 0;
       
-      await addDoc(itemsRef, {
+      const itemData = {
         category: activeTab,
         title: newItemTitle,
         link: newItemLink,
@@ -283,13 +332,26 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
         targetDate: newItemTarget,
         priority: newItemPriority,
         budget: newItemBudget,
-        completed: false,
-        createdBy: user.uid,
-        createdAt: Date.now(),
-        order: currentLen // Add at the end
-      });
-      setNewItemTitle(''); setNewItemLink(''); setNewItemNote(''); 
-      setNewItemTarget(''); setShowAddModal(false);
+        priceEstimate: price,
+      };
+
+      if (editingItemId) {
+        // UPDATE MODE
+        const itemDoc = doc(db, "relationships", relationship.id, "items", editingItemId);
+        await updateDoc(itemDoc, itemData);
+      } else {
+        // CREATE MODE
+        const currentLen = items.filter(i => i.category === activeTab).length;
+        await addDoc(itemsRef, {
+          ...itemData,
+          completed: false,
+          createdBy: user.uid,
+          createdAt: Date.now(),
+          order: currentLen
+        });
+      }
+
+      setShowAddModal(false);
     } catch (err) {
       alert("Gagal menyimpan.");
     }
@@ -306,6 +368,49 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
       await deleteDoc(itemRef);
     }
   };
+
+  // --- SAVINGS ACTIONS ---
+
+  const handleCreateSaving = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!savingTitle.trim()) return;
+    try {
+      const savingsRef = collection(db, "relationships", relationship.id, "savings");
+      await addDoc(savingsRef, {
+        title: savingTitle,
+        targetAmount: parseInt(savingTarget.replace(/\D/g, '')) || 0,
+        currentAmount: 0,
+        color: CARD_COLORS[Math.floor(Math.random() * CARD_COLORS.length)],
+        lastUpdated: Date.now()
+      });
+      setSavingTitle(''); setSavingTarget(''); setShowSavingModal(false);
+    } catch (err) { alert("Gagal membuat tabungan."); }
+  };
+
+  const handleDeleteSaving = async (id: string) => {
+    if (confirm("Hapus target tabungan ini? Uang tidak akan hilang, tapi data terhapus.")) {
+      await deleteDoc(doc(db, "relationships", relationship.id, "savings", id));
+    }
+  };
+
+  const handleUpdateSavingAmount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!topUpGoalId || !topUpAmount) return;
+    
+    const amount = parseInt(topUpAmount.replace(/\D/g, '')) || 0;
+    const finalAmount = topUpMode === 'add' ? amount : -amount;
+
+    try {
+      const savingRef = doc(db, "relationships", relationship.id, "savings", topUpGoalId);
+      await updateDoc(savingRef, {
+        currentAmount: increment(finalAmount),
+        lastUpdated: Date.now()
+      });
+      setTopUpGoalId(null); setTopUpAmount('');
+    } catch (err) { alert("Gagal update saldo."); }
+  };
+
+  // --- AI ACTIONS ---
 
   const handleAiRoulette = async () => {
     setAiMode('roulette');
@@ -405,7 +510,7 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
   const renderWishlist = () => (
     <div className="pb-24 pt-6 px-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex gap-2 overflow-x-auto pb-4 scrollbar-hide">
-        {Object.values(TabType).map(t => (
+        {Object.values(TabType).filter(t => t !== TabType.SAVINGS).map(t => (
           <button 
             key={t}
             onClick={() => setActiveTab(t)}
@@ -434,37 +539,51 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
             <p className="text-sm">Belum ada item di kategori ini.</p>
           </div>
         ) : (
-          filteredItems.map(item => (
+          filteredItems.map((item, index) => (
             <div 
               key={item.id} 
-              draggable={!item.completed} // Only active items are draggable
-              onDragStart={(e) => handleDragStart(e, item)}
-              onDragOver={handleDragOver}
-              onDragEnd={handleDragEnd}
-              onDrop={(e) => handleDrop(e, item)}
-              className={`bg-white rounded-[24px] p-5 border border-gray-100 shadow-sm transition-all group relative ${item.completed ? 'opacity-60 grayscale' : 'hover:shadow-md cursor-grab active:cursor-grabbing'}`}
+              className={`bg-white rounded-[24px] p-4 border border-gray-100 shadow-sm transition-all group relative ${item.completed ? 'opacity-60 grayscale' : 'hover:shadow-md'}`}
             >
-               {/* Drag Handle Indicator */}
-               {!item.completed && (
-                 <div className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-200 opacity-0 group-hover:opacity-100 transition-opacity">
-                   <GripVertical className="w-4 h-4" />
-                 </div>
-               )}
-               
-               <div className={`flex justify-between items-start mb-3 ${!item.completed ? 'pl-2' : ''}`}>
-                 <div>
-                   <div className="flex items-center gap-2 mb-1">
+               <div className={`flex justify-between items-start mb-3 ${!item.completed ? 'pl-8' : ''}`}>
+                 
+                 {/* Reorder Buttons (Mobile Friendly) */}
+                 {!item.completed && (
+                   <div className="absolute left-2 top-4 flex flex-col gap-1">
+                      <button 
+                        onClick={() => handleMoveItem(item, 'up')}
+                        disabled={index === 0}
+                        className="p-1 bg-gray-50 rounded-full text-gray-400 hover:text-[#8E6E6E] disabled:opacity-30"
+                      >
+                        <ArrowUp className="w-3 h-3" />
+                      </button>
+                      <button 
+                        onClick={() => handleMoveItem(item, 'down')}
+                        disabled={index === filteredItems.filter(i => !i.completed).length - 1}
+                        className="p-1 bg-gray-50 rounded-full text-gray-400 hover:text-[#8E6E6E] disabled:opacity-30"
+                      >
+                        <ArrowDown className="w-3 h-3" />
+                      </button>
+                   </div>
+                 )}
+
+                 <div className="flex-1">
+                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                       {item.priority === 'high' && <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold">PENTING</span>}
                       {item.budget && <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded-full font-medium">{BUDGET_LABELS[item.budget]}</span>}
+                      {item.priceEstimate && item.priceEstimate > 0 && (
+                        <span className="text-[10px] bg-yellow-50 text-yellow-700 px-2 py-0.5 rounded-full font-bold border border-yellow-100">
+                          {formatRupiah(item.priceEstimate)}
+                        </span>
+                      )}
                    </div>
                    <h3 className={`font-bold text-gray-800 text-lg ${item.completed ? 'line-through' : ''}`}>{item.title}</h3>
                  </div>
-                 <button onClick={() => toggleComplete(item)} className={`p-2 rounded-full ${item.completed ? 'bg-green-100 text-green-600' : 'bg-gray-50 text-gray-300 hover:bg-gray-100'}`}>
+                 <button onClick={() => toggleComplete(item)} className={`p-2 rounded-full shrink-0 ${item.completed ? 'bg-green-100 text-green-600' : 'bg-gray-50 text-gray-300 hover:bg-gray-100'}`}>
                    <CheckCircle className="w-5 h-5" />
                  </button>
                </div>
-               {item.note && <p className={`text-gray-500 text-sm mb-3 bg-[#FDFBF7] p-3 rounded-xl ${!item.completed ? 'ml-2' : ''}`}>{item.note}</p>}
-               <div className={`flex items-center justify-between pt-3 border-t border-gray-50 ${!item.completed ? 'ml-2' : ''}`}>
+               {item.note && <p className={`text-gray-500 text-sm mb-3 bg-[#FDFBF7] p-3 rounded-xl ${!item.completed ? 'ml-8' : ''}`}>{item.note}</p>}
+               <div className={`flex items-center justify-between pt-3 border-t border-gray-50 ${!item.completed ? 'ml-8' : ''}`}>
                  <div className="flex gap-2">
                     {item.link && (
                       <a href={item.link} target="_blank" rel="noreferrer" className="text-xs bg-gray-50 px-3 py-1.5 rounded-full flex items-center gap-1 hover:bg-gray-100 transition-colors">
@@ -477,18 +596,109 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
                       </button>
                     )}
                  </div>
-                 <button onClick={() => deleteItem(item.id)} className="text-gray-300 hover:text-red-400 transition-colors">
-                   <Trash2 className="w-4 h-4" />
-                 </button>
+                 <div className="flex gap-2">
+                   <button onClick={() => openEditModal(item)} className="text-gray-300 hover:text-blue-400 transition-colors">
+                     <Edit2 className="w-4 h-4" />
+                   </button>
+                   <button onClick={() => deleteItem(item.id)} className="text-gray-300 hover:text-red-400 transition-colors">
+                     <Trash2 className="w-4 h-4" />
+                   </button>
+                 </div>
                </div>
             </div>
           ))
         )}
       </div>
       
-      <button onClick={() => setShowAddModal(true)} className="fixed bottom-24 right-6 w-14 h-14 bg-[#8E6E6E] text-white rounded-full shadow-xl shadow-[#8E6E6E]/30 flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-20">
+      <button onClick={openAddModal} className="fixed bottom-24 right-6 w-14 h-14 bg-[#8E6E6E] text-white rounded-full shadow-xl shadow-[#8E6E6E]/30 flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-20">
         <Plus className="w-7 h-7" />
       </button>
+    </div>
+  );
+
+  const renderSavings = () => (
+    <div className="pb-24 pt-6 px-4 animate-in fade-in duration-500">
+      <div className="bg-[#B09B7A] rounded-[32px] p-6 text-white mb-6 shadow-xl shadow-[#B09B7A]/20">
+        <h2 className="text-xl font-bold font-handwriting mb-1">Total Tabungan</h2>
+        <div className="text-3xl font-bold">
+          {formatRupiah(savings.reduce((acc, curr) => acc + curr.currentAmount, 0))}
+        </div>
+        <p className="text-white/70 text-sm mt-2">Semangat nabung buat masa depan! 💪</p>
+      </div>
+
+      <div className="space-y-4">
+        {savings.map((goal) => {
+          const percentage = Math.min(100, Math.round((goal.currentAmount / goal.targetAmount) * 100));
+          
+          return (
+            <div key={goal.id} className={`bg-white rounded-[24px] p-5 border border-gray-100 shadow-sm relative overflow-hidden`}>
+              <div className={`absolute top-0 right-0 w-20 h-20 ${goal.color} rounded-bl-full opacity-20 -mr-4 -mt-4`}></div>
+              
+              <div className="flex justify-between items-start mb-2 relative z-10">
+                <div>
+                  <h3 className="font-bold text-gray-800 text-lg">{goal.title}</h3>
+                  <p className="text-xs text-gray-400">Target: {formatRupiah(goal.targetAmount)}</p>
+                </div>
+                <button onClick={() => handleDeleteSaving(goal.id)} className="text-gray-300 hover:text-red-400"><Trash2 className="w-4 h-4"/></button>
+              </div>
+
+              <div className="mb-4 relative z-10">
+                <div className="flex justify-between items-end mb-1">
+                   <span className="text-2xl font-bold text-[#8E6E6E]">{formatRupiah(goal.currentAmount)}</span>
+                   <span className="text-xs font-bold text-[#8E6E6E]">{percentage}%</span>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+                  <div className="h-full bg-[#8E6E6E] rounded-full transition-all duration-1000 ease-out" style={{ width: `${percentage}%` }}></div>
+                </div>
+              </div>
+
+              <div className="flex gap-2 relative z-10">
+                <button 
+                  onClick={() => { setTopUpGoalId(goal.id); setTopUpMode('add'); }}
+                  className="flex-1 bg-[#FDFBF7] border border-[#EBE0D0] py-2 rounded-xl text-xs font-bold text-gray-600 hover:bg-green-50 hover:text-green-600 transition-colors flex items-center justify-center gap-1"
+                >
+                  <TrendingUp className="w-3 h-3" /> Nabung
+                </button>
+                <button 
+                   onClick={() => { setTopUpGoalId(goal.id); setTopUpMode('withdraw'); }}
+                   className="flex-1 bg-[#FDFBF7] border border-[#EBE0D0] py-2 rounded-xl text-xs font-bold text-gray-600 hover:bg-red-50 hover:text-red-600 transition-colors flex items-center justify-center gap-1"
+                >
+                  <Minus className="w-3 h-3" /> Tarik
+                </button>
+              </div>
+            </div>
+          );
+        })}
+
+        <button onClick={() => setShowSavingModal(true)} className="w-full py-4 border-2 border-dashed border-gray-200 rounded-[24px] text-gray-400 font-bold hover:bg-gray-50 hover:border-gray-300 transition-all flex items-center justify-center gap-2">
+           <Plus className="w-5 h-5" /> Buat Target Baru
+        </button>
+      </div>
+
+      {/* MODAL UPDATE SALDO */}
+      {topUpGoalId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-6 animate-in fade-in">
+           <div className="bg-white w-full max-w-xs rounded-[32px] p-6 animate-in zoom-in-95">
+              <h3 className="font-bold text-lg mb-4 text-center">
+                {topUpMode === 'add' ? 'Tambah Tabungan' : 'Tarik Saldo'}
+              </h3>
+              <form onSubmit={handleUpdateSavingAmount}>
+                <input 
+                  autoFocus
+                  type="number"
+                  placeholder="0"
+                  className="w-full bg-[#FDFBF7] p-4 rounded-xl border border-gray-100 mb-4 text-center text-xl font-bold outline-none focus:ring-1 focus:ring-[#B09B7A]"
+                  value={topUpAmount}
+                  onChange={(e) => setTopUpAmount(e.target.value)}
+                />
+                <button className={`w-full text-white py-3 rounded-xl font-bold shadow-lg mb-2 ${topUpMode === 'add' ? 'bg-green-500 shadow-green-500/30' : 'bg-red-500 shadow-red-500/30'}`}>
+                  {topUpMode === 'add' ? 'Masukin Celengan' : 'Ambil Uang'}
+                </button>
+                <button type="button" onClick={() => { setTopUpGoalId(null); setTopUpAmount(''); }} className="w-full text-sm text-gray-400 py-2">Batal</button>
+              </form>
+           </div>
+        </div>
+      )}
     </div>
   );
 
@@ -505,6 +715,7 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
             const isMe = msg.senderId === user.uid;
             const sender = partners.find(p => p.uid === msg.senderId);
             const showAvatar = !isMe && (idx === 0 || messages[idx-1].senderId !== msg.senderId);
+            const isEditing = editingMessageId === msg.id;
 
             return (
               <div key={msg.id} className={`flex w-full ${isMe ? 'justify-end' : 'justify-start'} items-end gap-2`}>
@@ -515,15 +726,48 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
                      ) : <div className="w-8 h-8" />}
                   </div>
                 )}
-                <div className={`max-w-[75%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm ${
-                  isMe 
-                    ? 'bg-[#8E6E6E] text-white rounded-br-none' 
-                    : 'bg-white border border-gray-100 text-gray-700 rounded-bl-none'
-                }`}>
-                  {msg.text}
-                  <div className={`text-[9px] mt-1 text-right ${isMe ? 'text-white/60' : 'text-gray-300'}`}>
-                    {new Date(msg.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                  </div>
+                
+                <div className="flex flex-col items-end">
+                   <div 
+                     onClick={() => isMe && !isEditing && setSelectedMessageId(selectedMessageId === msg.id ? null : msg.id)}
+                     className={`max-w-[280px] px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm relative transition-all cursor-pointer ${
+                      isMe 
+                        ? 'bg-[#8E6E6E] text-white rounded-br-none hover:bg-[#7d5f5f]' 
+                        : 'bg-white border border-gray-100 text-gray-700 rounded-bl-none'
+                    }`}
+                   >
+                     {isEditing ? (
+                        <div className="flex gap-2 items-center">
+                          <input 
+                            autoFocus
+                            className="bg-white/20 text-white p-1 rounded w-full outline-none" 
+                            value={editMessageText} 
+                            onChange={e => setEditMessageText(e.target.value)}
+                          />
+                          <button onClick={handleSaveEditMessage} className="bg-white text-[#8E6E6E] p-1 rounded-full"><Check className="w-3 h-3" /></button>
+                          <button onClick={() => setEditingMessageId(null)} className="text-white/70 p-1"><X className="w-3 h-3" /></button>
+                        </div>
+                     ) : (
+                        <>
+                          {msg.text}
+                          <div className={`text-[9px] mt-1 text-right ${isMe ? 'text-white/60' : 'text-gray-300'}`}>
+                            {new Date(msg.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                          </div>
+                        </>
+                     )}
+                   </div>
+
+                   {/* Options Menu for Own Messages */}
+                   {isMe && selectedMessageId === msg.id && !isEditing && (
+                     <div className="flex gap-2 mt-1 bg-white p-1.5 rounded-lg shadow-md border border-gray-100 animate-in slide-in-from-top-1">
+                        <button onClick={() => handleStartEditMessage(msg)} className="p-1.5 hover:bg-gray-100 rounded text-blue-500" title="Edit">
+                          <Edit2 className="w-3 h-3" />
+                        </button>
+                        <button onClick={() => handleDeleteMessage(msg.id)} className="p-1.5 hover:bg-gray-100 rounded text-red-500" title="Delete">
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                     </div>
+                   )}
                 </div>
               </div>
             );
@@ -640,6 +884,7 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
 
       {currentView === 'home' && renderHome()}
       {currentView === 'wishlist' && renderWishlist()}
+      {currentView === 'savings' && renderSavings()}
       {currentView === 'chat' && renderChat()}
       {currentView === 'profile' && renderProfile()}
 
@@ -647,8 +892,11 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
         <button onClick={() => setCurrentView('home')} className={`p-3 rounded-2xl transition-all ${currentView === 'home' ? 'bg-[#8E6E6E] text-white shadow-lg shadow-[#8E6E6E]/20' : 'text-gray-300 hover:text-gray-500'}`}>
           <Home className="w-6 h-6" />
         </button>
-        <button onClick={() => setCurrentView('wishlist')} className={`p-3 rounded-2xl transition-all ${currentView === 'wishlist' ? 'bg-[#B09B7A] text-white shadow-lg shadow-[#B09B7A]/20' : 'text-gray-300 hover:text-gray-500'}`}>
+        <button onClick={() => { setCurrentView('wishlist'); setActiveTab(TabType.PLACES); }} className={`p-3 rounded-2xl transition-all ${currentView === 'wishlist' ? 'bg-[#B09B7A] text-white shadow-lg shadow-[#B09B7A]/20' : 'text-gray-300 hover:text-gray-500'}`}>
           <List className="w-6 h-6" />
+        </button>
+        <button onClick={() => setCurrentView('savings')} className={`p-3 rounded-2xl transition-all ${currentView === 'savings' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20' : 'text-gray-300 hover:text-gray-500'}`}>
+          <Wallet className="w-6 h-6" />
         </button>
         <button onClick={() => setCurrentView('chat')} className={`p-3 rounded-2xl transition-all relative ${currentView === 'chat' ? 'bg-pink-400 text-white shadow-lg shadow-pink-400/20' : 'text-gray-300 hover:text-gray-500'}`}>
           <MessageCircle className="w-6 h-6" />
@@ -663,15 +911,15 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
         </button>
       </nav>
 
-      {/* MODALS */}
+      {/* MODAL ADD/EDIT WISHLIST */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in">
           <div className="bg-white w-full max-w-md rounded-[32px] p-6 shadow-2xl animate-in slide-in-from-bottom duration-300">
              <div className="flex justify-between items-center mb-6">
-               <h3 className="font-bold text-xl text-gray-800">Tambah {activeTab}</h3>
+               <h3 className="font-bold text-xl text-gray-800">{editingItemId ? 'Edit Item' : `Tambah ${activeTab}`}</h3>
                <button onClick={() => setShowAddModal(false)} className="bg-gray-50 p-2 rounded-full"><X className="w-5 h-5 text-gray-400" /></button>
              </div>
-             <form onSubmit={handleAddItem} className="space-y-4">
+             <form onSubmit={handleSaveItem} className="space-y-4">
                <input autoFocus placeholder="Judul..." className="w-full bg-[#FDFBF7] p-4 rounded-xl border border-gray-100 focus:outline-none focus:ring-1 focus:ring-[#B09B7A]" value={newItemTitle} onChange={e => setNewItemTitle(e.target.value)} />
                
                <div className="grid grid-cols-2 gap-3">
@@ -687,6 +935,18 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
                    <option value="high">Budget: $$$ Mewah</option>
                  </select>
                </div>
+               
+               {/* NEW: Price Estimate Field */}
+               <div className="relative">
+                  <span className="absolute left-4 top-3.5 text-gray-400 font-bold text-sm">Rp</span>
+                  <input 
+                    type="number"
+                    placeholder="Estimasi Biaya (Nominal)" 
+                    className="w-full bg-[#FDFBF7] p-3 pl-10 rounded-xl border border-gray-100 text-sm focus:outline-none focus:ring-1 focus:ring-[#B09B7A]" 
+                    value={newItemPrice} 
+                    onChange={e => setNewItemPrice(e.target.value)} 
+                  />
+               </div>
 
                <div className="flex gap-2">
                  <input type="date" className="flex-1 bg-[#FDFBF7] p-3 rounded-xl border border-gray-100 text-sm text-gray-500" value={newItemTarget} onChange={e => setNewItemTarget(e.target.value)} />
@@ -695,7 +955,29 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
 
                <textarea placeholder="Catatan kecil..." rows={2} className="w-full bg-[#FDFBF7] p-4 rounded-xl border border-gray-100 focus:outline-none resize-none text-sm" value={newItemNote} onChange={e => setNewItemNote(e.target.value)} />
 
-               <button disabled={!newItemTitle.trim()} className="w-full bg-[#8E6E6E] text-white py-4 rounded-2xl font-bold shadow-lg shadow-[#8E6E6E]/30 disabled:opacity-50">Simpan</button>
+               <button disabled={!newItemTitle.trim()} className="w-full bg-[#8E6E6E] text-white py-4 rounded-2xl font-bold shadow-lg shadow-[#8E6E6E]/30 disabled:opacity-50">
+                 {editingItemId ? 'Update Perubahan' : 'Simpan'}
+               </button>
+             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL ADD SAVING GOAL */}
+      {showSavingModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="bg-white w-full max-w-sm rounded-[32px] p-6 shadow-2xl animate-in zoom-in-95">
+             <div className="flex justify-between items-center mb-6">
+               <h3 className="font-bold text-lg text-gray-800">Target Nabung Baru</h3>
+               <button onClick={() => setShowSavingModal(false)} className="bg-gray-50 p-2 rounded-full"><X className="w-5 h-5 text-gray-400" /></button>
+             </div>
+             <form onSubmit={handleCreateSaving} className="space-y-4">
+               <input autoFocus placeholder="Nama Tabungan (cth: Dana Nikah)" className="w-full bg-[#FDFBF7] p-4 rounded-xl border border-gray-100 focus:outline-none focus:ring-1 focus:ring-[#B09B7A]" value={savingTitle} onChange={e => setSavingTitle(e.target.value)} />
+               <div className="relative">
+                  <span className="absolute left-4 top-4 text-gray-400 font-bold">Rp</span>
+                  <input type="number" placeholder="Target Nominal" className="w-full bg-[#FDFBF7] p-4 pl-12 rounded-xl border border-gray-100 focus:outline-none focus:ring-1 focus:ring-[#B09B7A]" value={savingTarget} onChange={e => setSavingTarget(e.target.value)} />
+               </div>
+               <button disabled={!savingTitle.trim()} className="w-full bg-[#8E6E6E] text-white py-4 rounded-2xl font-bold shadow-lg shadow-[#8E6E6E]/30 disabled:opacity-50">Mulai Nabung</button>
              </form>
           </div>
         </div>
