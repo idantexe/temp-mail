@@ -3,13 +3,13 @@ import { UserProfile, Relationship, TabType, WishlistItem, Message } from '../ty
 import { db, logout, leaveRelationship } from '../services/firebase';
 import { 
   collection, query, orderBy, onSnapshot, 
-  addDoc, updateDoc, doc, deleteDoc, where, getDocs, limit
+  addDoc, updateDoc, doc, deleteDoc, where, getDocs, limit, writeBatch
 } from 'firebase/firestore';
 import { generateIdeas, generatePlan, generateRouletteSuggestion } from '../services/geminiService';
 import { 
   Heart, MapPin, Calendar, Star, Plus, Link as LinkIcon, 
   Trash2, CheckCircle, Sparkles, X, LogOut, Copy, Settings, 
-  Loader2, Home, List, User, DollarSign, RefreshCw, Filter, Edit2, Users, MessageCircle, Send
+  Loader2, Home, List, User, DollarSign, RefreshCw, Filter, Edit2, Users, MessageCircle, Send, GripVertical
 } from 'lucide-react';
 
 interface Props {
@@ -35,6 +35,13 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
   const [partners, setPartners] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(true);
   
+  // Notification State
+  const [unreadCount, setUnreadCount] = useState(0);
+  const isFirstLoadRef = useRef(true); // To prevent badge on initial load
+  
+  // Drag & Drop State
+  const [draggedItem, setDraggedItem] = useState<WishlistItem | null>(null);
+
   // Love Note State
   const [loveNote, setLoveNote] = useState(relationship.loveNote || '');
   const noteTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -76,31 +83,63 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
     }
   }, [relationship.loveNote, relationship.startDate]);
 
+  // Reset unread count when opening chat
+  useEffect(() => {
+    if (currentView === 'chat') {
+      setUnreadCount(0);
+    }
+  }, [currentView]);
+
   // Items Listener
   useEffect(() => {
     const itemsRef = collection(db, "relationships", relationship.id, "items");
-    const q = query(itemsRef, orderBy("createdAt", "desc"));
+    // We order by createdAt desc initially from DB, but will sort by 'order' in client
+    const q = query(itemsRef);
+    
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetched = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as WishlistItem));
-      setItems(fetched);
+      
+      // Sort: Completed at bottom, then by 'order' asc, then by createdAt desc
+      const sorted = fetched.sort((a, b) => {
+        if (a.completed !== b.completed) return a.completed ? 1 : -1;
+        // If order exists, use it
+        if (a.order !== undefined && b.order !== undefined) return a.order - b.order;
+        // Fallback to creation time
+        return b.createdAt - a.createdAt;
+      });
+
+      setItems(sorted);
       setLoading(false);
     });
     return () => unsubscribe();
   }, [relationship.id]);
 
-  // Messages Listener (Chat)
+  // Messages Listener (Chat & Notifications)
   useEffect(() => {
     const messagesRef = collection(db, "relationships", relationship.id, "messages");
-    // Limit to last 50 messages for performance
     const q = query(messagesRef, orderBy("createdAt", "asc"), limit(50));
     
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedMsgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
       setMessages(fetchedMsgs);
+
+      // Notification Logic
+      if (!isFirstLoadRef.current && currentView !== 'chat') {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            const msg = change.doc.data() as Message;
+            // Jika pesan baru bukan dari saya, tambah badge
+            if (msg.senderId !== user.uid) {
+              setUnreadCount(prev => prev + 1);
+            }
+          }
+        });
+      }
+      isFirstLoadRef.current = false;
     });
     
     return () => unsubscribe();
-  }, [relationship.id]);
+  }, [relationship.id, currentView, user.uid]);
 
   // Auto scroll to bottom when new message arrives
   useEffect(() => {
@@ -125,6 +164,62 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
     };
     fetchPartners();
   }, [relationship.partnerIds]);
+
+  // --- DRAG AND DROP HANDLERS ---
+
+  const handleDragStart = (e: React.DragEvent, item: WishlistItem) => {
+    setDraggedItem(item);
+    e.dataTransfer.effectAllowed = "move";
+    // Set transparent drag image or styling could go here
+    if (e.currentTarget instanceof HTMLElement) {
+       e.currentTarget.style.opacity = '0.5';
+    }
+  };
+
+  const handleDragEnd = (e: React.DragEvent) => {
+     if (e.currentTarget instanceof HTMLElement) {
+       e.currentTarget.style.opacity = '1';
+    }
+    setDraggedItem(null);
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault(); // Necessary to allow dropping
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = async (e: React.DragEvent, targetItem: WishlistItem) => {
+    e.preventDefault();
+    if (!draggedItem || draggedItem.id === targetItem.id) return;
+
+    // 1. Reorder array locally to feel snappy
+    const currentList = items.filter(i => i.category === activeTab && !i.completed);
+    const updatedList = [...currentList];
+    
+    const dragIndex = updatedList.findIndex(i => i.id === draggedItem.id);
+    const hoverIndex = updatedList.findIndex(i => i.id === targetItem.id);
+
+    if (dragIndex < 0 || hoverIndex < 0) return;
+
+    // Remove from old index
+    updatedList.splice(dragIndex, 1);
+    // Insert at new index
+    updatedList.splice(hoverIndex, 0, draggedItem);
+
+    // 2. Batch update to Firestore
+    try {
+      const batch = writeBatch(db);
+      updatedList.forEach((item, index) => {
+        const itemRef = doc(db, "relationships", relationship.id, "items", item.id);
+        batch.update(itemRef, { order: index });
+      });
+      await batch.commit();
+    } catch (error) {
+      console.error("Gagal menyimpan urutan:", error);
+      alert("Gagal mengubah posisi item.");
+    }
+  };
+
 
   // --- ACTIONS ---
 
@@ -176,6 +271,10 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
 
     try {
       const itemsRef = collection(db, "relationships", relationship.id, "items");
+      // Get current max order to put new item at bottom, or 0 to top. Let's put at top (0)
+      // Actually, standard is bottom. Let's put it at length.
+      const currentLen = items.filter(i => i.category === activeTab).length;
+      
       await addDoc(itemsRef, {
         category: activeTab,
         title: newItemTitle,
@@ -186,7 +285,8 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
         budget: newItemBudget,
         completed: false,
         createdBy: user.uid,
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        order: currentLen // Add at the end
       });
       setNewItemTitle(''); setNewItemLink(''); setNewItemNote(''); 
       setNewItemTarget(''); setShowAddModal(false);
@@ -335,8 +435,23 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
           </div>
         ) : (
           filteredItems.map(item => (
-            <div key={item.id} className={`bg-white rounded-[24px] p-5 border border-gray-100 shadow-sm transition-all ${item.completed ? 'opacity-60 grayscale' : 'hover:shadow-md'}`}>
-               <div className="flex justify-between items-start mb-3">
+            <div 
+              key={item.id} 
+              draggable={!item.completed} // Only active items are draggable
+              onDragStart={(e) => handleDragStart(e, item)}
+              onDragOver={handleDragOver}
+              onDragEnd={handleDragEnd}
+              onDrop={(e) => handleDrop(e, item)}
+              className={`bg-white rounded-[24px] p-5 border border-gray-100 shadow-sm transition-all group relative ${item.completed ? 'opacity-60 grayscale' : 'hover:shadow-md cursor-grab active:cursor-grabbing'}`}
+            >
+               {/* Drag Handle Indicator */}
+               {!item.completed && (
+                 <div className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-200 opacity-0 group-hover:opacity-100 transition-opacity">
+                   <GripVertical className="w-4 h-4" />
+                 </div>
+               )}
+               
+               <div className={`flex justify-between items-start mb-3 ${!item.completed ? 'pl-2' : ''}`}>
                  <div>
                    <div className="flex items-center gap-2 mb-1">
                       {item.priority === 'high' && <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full font-bold">PENTING</span>}
@@ -348,8 +463,8 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
                    <CheckCircle className="w-5 h-5" />
                  </button>
                </div>
-               {item.note && <p className="text-gray-500 text-sm mb-3 bg-[#FDFBF7] p-3 rounded-xl">{item.note}</p>}
-               <div className="flex items-center justify-between pt-3 border-t border-gray-50">
+               {item.note && <p className={`text-gray-500 text-sm mb-3 bg-[#FDFBF7] p-3 rounded-xl ${!item.completed ? 'ml-2' : ''}`}>{item.note}</p>}
+               <div className={`flex items-center justify-between pt-3 border-t border-gray-50 ${!item.completed ? 'ml-2' : ''}`}>
                  <div className="flex gap-2">
                     {item.link && (
                       <a href={item.link} target="_blank" rel="noreferrer" className="text-xs bg-gray-50 px-3 py-1.5 rounded-full flex items-center gap-1 hover:bg-gray-100 transition-colors">
@@ -535,8 +650,13 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
         <button onClick={() => setCurrentView('wishlist')} className={`p-3 rounded-2xl transition-all ${currentView === 'wishlist' ? 'bg-[#B09B7A] text-white shadow-lg shadow-[#B09B7A]/20' : 'text-gray-300 hover:text-gray-500'}`}>
           <List className="w-6 h-6" />
         </button>
-        <button onClick={() => setCurrentView('chat')} className={`p-3 rounded-2xl transition-all ${currentView === 'chat' ? 'bg-pink-400 text-white shadow-lg shadow-pink-400/20' : 'text-gray-300 hover:text-gray-500'}`}>
+        <button onClick={() => setCurrentView('chat')} className={`p-3 rounded-2xl transition-all relative ${currentView === 'chat' ? 'bg-pink-400 text-white shadow-lg shadow-pink-400/20' : 'text-gray-300 hover:text-gray-500'}`}>
           <MessageCircle className="w-6 h-6" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center border border-white">
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
+          )}
         </button>
         <button onClick={() => setCurrentView('profile')} className={`p-3 rounded-2xl transition-all ${currentView === 'profile' ? 'bg-gray-800 text-white shadow-lg shadow-gray-800/20' : 'text-gray-300 hover:text-gray-500'}`}>
           <User className="w-6 h-6" />

@@ -29,6 +29,7 @@ export interface WishlistItem {
   // Fitur Baru
   priority: 'high' | 'medium' | 'low';
   budget: 'free' | 'low' | 'medium' | 'high';
+  order?: number; // Untuk urutan manual (Drag & Drop)
 }
 
 export interface Message {
