@@ -26,14 +26,17 @@ const BUDGET_LABELS = {
 
 const CARD_COLORS = ['bg-emerald-100', 'bg-blue-100', 'bg-purple-100', 'bg-orange-100', 'bg-pink-100'];
 
-// URL Suara Notifikasi (Suara "Pop" yang lembut)
-const NOTIFICATION_SOUND = 'https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3';
+// MENGGUNAKAN FILE LOKAL (Pastikan file ada di public/sounds/notification.mp3)
+const NOTIFICATION_SOUND = '/sounds/notification.mp3';
 
 const Dashboard: React.FC<Props> = ({ user, relationship }) => {
   // Navigation State
   const [currentView, setCurrentView] = useState<'home' | 'wishlist' | 'savings' | 'chat' | 'profile'>('home');
   const [activeTab, setActiveTab] = useState<TabType>(TabType.PLACES);
   
+  // Ref untuk melacak view aktif tanpa memicu re-render listener pesan
+  const currentViewRef = useRef(currentView);
+
   // Data State
   const [items, setItems] = useState<WishlistItem[]>([]);
   const [savings, setSavings] = useState<SavingGoal[]>([]); // Savings Data
@@ -92,6 +95,11 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
   const [aiMode, setAiMode] = useState<'idea' | 'plan' | 'roulette'>('idea');
   const [selectedItemForPlan, setSelectedItemForPlan] = useState<WishlistItem | null>(null);
 
+  // Sync currentView to Ref
+  useEffect(() => {
+    currentViewRef.current = currentView;
+  }, [currentView]);
+
   // Sync relationship love note if changed by partner
   useEffect(() => {
     if (relationship.loveNote !== undefined) {
@@ -146,6 +154,8 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
     const messagesRef = collection(db, "relationships", relationship.id, "messages");
     const q = query(messagesRef, orderBy("createdAt", "asc"), limit(50));
     
+    // IMPORTANT: Dependencies array hanya berisi relationship.id dan user.uid.
+    // Kita hapus currentView dari sini agar listener tidak restart saat ganti tab.
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const fetchedMsgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
       setMessages(fetchedMsgs);
@@ -161,13 +171,14 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
               try {
                 const audio = new Audio(NOTIFICATION_SOUND);
                 audio.volume = 0.5; // Set volume 50%
-                audio.play().catch(e => console.log("Audio autoplay blocked by browser", e));
+                audio.play().catch(e => console.log("Audio autoplay blocked or file missing", e));
               } catch (e) {
                 console.error("Gagal memutar audio", e);
               }
 
               // 2. Update Badge jika tidak di halaman chat
-              if (currentView !== 'chat') {
+              // Gunakan REF agar mendapat value terbaru tanpa re-render listener
+              if (currentViewRef.current !== 'chat') {
                 setUnreadCount(prev => prev + 1);
               }
             }
@@ -178,7 +189,7 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
     });
     
     return () => unsubscribe();
-  }, [relationship.id, currentView, user.uid]);
+  }, [relationship.id, user.uid]);
 
   // Auto scroll
   useEffect(() => {
@@ -245,8 +256,9 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
         createdAt: Date.now()
       });
       setNewMessageText('');
-    } catch (error) {
+    } catch (error: any) {
       console.error("Gagal mengirim pesan", error);
+      alert(`Gagal mengirim: ${error.message}. Coba refresh.`);
     }
   };
 
@@ -793,7 +805,8 @@ const Dashboard: React.FC<Props> = ({ user, relationship }) => {
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="p-4 bg-white border-t border-gray-100 pb-24">
+      {/* FIXED: Added 'relative z-40' to bring input above navbar */}
+      <div className="p-4 bg-white border-t border-gray-100 pb-24 relative z-40">
          <form onSubmit={handleSendMessage} className="flex gap-2">
            <input 
              className="flex-1 bg-gray-50 rounded-full px-5 py-3 text-sm focus:outline-none focus:ring-1 focus:ring-[#8E6E6E] border border-gray-100"
