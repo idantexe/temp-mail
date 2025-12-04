@@ -1,4 +1,3 @@
-
 export interface UserProfile {
   uid: string;
   displayName: string | null;
@@ -41,16 +40,6 @@ export interface SavingGoal {
   currentAmount: number;
   color: string; // Untuk variasi warna kartu
   lastUpdated: number;
-}
-
-// Interface baru untuk Riwayat Transaksi
-export interface SavingTransaction {
-  id: string;
-  amount: number;
-  type: 'deposit' | 'withdraw';
-  date: number;
-  userId: string;
-  userName: string;
 }
 
 export interface Message {
