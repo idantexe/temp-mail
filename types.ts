@@ -29,17 +29,7 @@ export interface WishlistItem {
   // Fitur Baru
   priority: 'high' | 'medium' | 'low';
   budget: 'free' | 'low' | 'medium' | 'high';
-  priceEstimate?: number; // Nominal Budget (Angka)
   order?: number; // Untuk urutan manual (Drag & Drop)
-}
-
-export interface SavingGoal {
-  id: string;
-  title: string;
-  targetAmount: number;
-  currentAmount: number;
-  color: string; // Untuk variasi warna kartu
-  lastUpdated: number;
 }
 
 export interface Message {
@@ -52,6 +42,5 @@ export interface Message {
 export enum TabType {
   PLACES = 'places',
   ACTIVITIES = 'activities',
-  HOPES = 'hopes',
-  SAVINGS = 'savings' // Tab baru
+  HOPES = 'hopes'
 }
